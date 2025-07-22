@@ -8,8 +8,6 @@
 [build.environment]
   # Node.js版本
   NODE_VERSION = "18"
-  # 设置为生产环境
-  NODE_ENV = "production"
 
 # SPA路由重定向规则
 [[redirects]]
