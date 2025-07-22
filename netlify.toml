@@ -1,6 +1,6 @@
 [build]
-  # 构建命令
-  command = "npm run build"
+  # 构建命令 - 先安装依赖再构建
+  command = "npm ci && npm run build"
   
   # 发布目录
   publish = "dist"
