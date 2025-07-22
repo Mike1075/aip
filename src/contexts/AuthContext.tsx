@@ -83,18 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    if (!error && data.user) {
-      // 创建用户配置文件
-      await supabase.from('users').insert([
-        {
-          id: data.user.id,
-          email: data.user.email!,
-          name,
-          role_in_org: 'member',
-          is_ai_assist_enabled: false,
-        }
-      ])
-    }
+    // 注意：用户资料将由数据库触发器自动创建
+    // 不需要手动插入用户记录，触发器会处理这个
 
     return { error }
   }
