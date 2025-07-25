@@ -5,6 +5,7 @@ import { Sidebar } from './Sidebar'
 import { ProjectGrid } from './ProjectGrid'
 import { TaskList } from './TaskList'
 import { AIChat } from './AIChat'
+import { CreateProjectModal } from './CreateProjectModal'
 import { Plus, MessageSquare } from 'lucide-react'
 
 export function Dashboard() {
@@ -13,6 +14,8 @@ export function Dashboard() {
   const [myTasks, setMyTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [showAIChat, setShowAIChat] = useState(false)
+  const [showCreateProject, setShowCreateProject] = useState(false)
+  const [creatingProject, setCreatingProject] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -24,32 +27,60 @@ export function Dashboard() {
     if (!user) return
 
     try {
-      // 获取用户参与的项目
-      const { data: memberData } = await supabase
-        .from('project_members')
-        .select('project_id, projects(*)')
-        .eq('user_id', user.id)
+      console.log('📊 开始加载仪表板数据 (本地模式)...')
+      
+      // 本地模式：初始化为空数组
+      console.log('📁 初始化空项目列表')
+      setProjects([])
 
-      if (memberData) {
-        const userProjects = memberData.map(item => item.projects).filter(Boolean) as Project[]
-        setProjects(userProjects)
-      }
-
-      // 获取用户的任务
-      const { data: taskData } = await supabase
-        .from('tasks')
-        .select('*, projects(name)')
-        .eq('assignee_id', user.id)
-        .in('status', ['pending', 'in_progress'])
-        .order('created_at', { ascending: false })
-
-      if (taskData) {
-        setMyTasks(taskData)
-      }
+      // 任务也初始化为空
+      console.log('📋 初始化空任务列表')
+      setMyTasks([])
+      
     } catch (error) {
-      console.error('Error loading dashboard data:', error)
+      console.error('❌ 加载仪表板数据失败:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleCreateProject = async (projectName: string) => {
+    if (!user) return
+
+    setCreatingProject(true)
+    console.log('🚀 开始创建项目 (本地模式):', projectName)
+    
+    // 模拟网络延迟
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    
+    try {
+      // 创建本地项目对象
+      const newProject: Project = {
+        id: `project_${Date.now()}`, // 临时ID
+        name: projectName,
+        description: '',
+        status: 'active',
+        is_public: false,
+        is_recruiting: false,
+        creator_id: user.id,
+        organization_id: '00000000-0000-0000-0000-000000000000',
+        settings: {},
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+
+      console.log('✅ 本地项目创建成功:', newProject)
+
+      // 添加到本地状态
+      setProjects(prevProjects => [newProject, ...prevProjects])
+      setShowCreateProject(false)
+      console.log('🎉 项目创建完成!')
+      
+    } catch (error) {
+      console.error('❌ 创建项目过程中出错:', error)
+      alert(`创建项目失败: ${error.message || '未知错误'}`)
+    } finally {
+      setCreatingProject(false)
     }
   }
 
@@ -81,7 +112,10 @@ export function Dashboard() {
 
           {/* 快速操作按钮 */}
           <div className="flex flex-wrap gap-4 mb-8">
-            <button className="btn-primary flex items-center gap-2">
+            <button 
+              onClick={() => setShowCreateProject(true)}
+              className="btn-primary flex items-center gap-2"
+            >
               <Plus className="h-4 w-4" />
               创建项目
             </button>
@@ -103,7 +137,10 @@ export function Dashboard() {
             
             {/* 我的项目 */}
             <div className="xl:col-span-2">
-              <ProjectGrid projects={projects} />
+              <ProjectGrid 
+                projects={projects} 
+                onCreateProject={() => setShowCreateProject(true)}
+              />
             </div>
           </div>
         </div>
@@ -113,6 +150,14 @@ export function Dashboard() {
       {showAIChat && (
         <AIChat onClose={() => setShowAIChat(false)} />
       )}
+
+      {/* 创建项目弹窗 */}
+      <CreateProjectModal
+        isOpen={showCreateProject}
+        onClose={() => setShowCreateProject(false)}
+        onConfirm={handleCreateProject}
+        loading={creatingProject}
+      />
     </div>
   )
 } 

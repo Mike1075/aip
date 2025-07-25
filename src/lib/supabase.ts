@@ -4,7 +4,20 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://wfkazzdlfgurfmucuoqf.supabase.co'
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indma2F6emRsZmd1cmZtdWN1b3FmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMxNjI5NjQsImV4cCI6MjA2ODczODk2NH0.B-132nJtoXCKIuHmCHehnhOac8JohGs6rg4GjoV4v5M'
 
+console.log('🔧 Supabase配置:')
+console.log('URL:', supabaseUrl)
+console.log('Key前6位:', supabaseAnonKey.substring(0, 6) + '...')
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+// 测试连接
+supabase.auth.getSession().then(({ data, error }) => {
+  if (error) {
+    console.error('❌ Supabase连接测试失败:', error)
+  } else {
+    console.log('✅ Supabase连接测试成功')
+  }
+})
 
 // 数据库类型定义
 export interface User {

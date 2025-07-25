@@ -6,6 +6,8 @@ interface AuthContextType {
   session: Session | null
   user: User | null
   loading: boolean
+  error: string | null
+  retry: () => void
   signIn: (email: string, password: string) => Promise<{ error: any }>
   signUp: (email: string, password: string, name: string) => Promise<{ error: any }>
   signOut: () => Promise<void>
@@ -24,55 +26,107 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false) // 改为false，避免初始loading
+  const [error, setError] = useState<string | null>(null)
+  const [initialized, setInitialized] = useState(false) // 添加初始化标记
 
+  const retry = () => {
+    setError(null)
+    setLoading(false)
+    setSession(null)
+    setUser(null)
+  }
+
+  // 简化的useEffect，只在第一次加载时运行
   useEffect(() => {
-    // 获取初始会话
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      if (session) {
-        fetchUserProfile(session.user)
-      } else {
+    if (!initialized) {
+      console.log('🔄 首次初始化...')
+      setInitialized(true)
+      
+      // 检查是否有现有会话
+      supabase.auth.getSession().then(({ data: { session }, error }) => {
+        if (error) {
+          console.error('❌ 获取会话失败:', error)
+        }
+        
+        if (session) {
+          console.log('✅ 发现现有会话，用户已登录')
+          setSession(session)
+          // 创建基本用户信息
+          const basicUser: User = {
+            id: session.user.id,
+            email: session.user.email!,
+            name: session.user.user_metadata?.name || session.user.email!.split('@')[0],
+            role_in_org: 'member',
+            is_ai_assist_enabled: false,
+            settings: {},
+            organization_id: '00000000-0000-0000-0000-000000000000',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+          setUser(basicUser)
+        } else {
+          console.log('🚪 无现有会话，显示登录页面')
+          setSession(null)
+          setUser(null)
+        }
         setLoading(false)
-      }
-    })
+      })
+      
+      console.log('✅ 初始化完成')
+    }
 
-    // 监听认证状态变化
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (session) {
-        fetchUserProfile(session.user)
-      } else {
+    // 添加认证状态监听
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔄 认证状态变化:', event, session ? '有会话' : '无会话')
+      
+      if (event === 'SIGNED_IN' && session) {
+        console.log('✅ 用户登录成功')
+        setSession(session)
+        setError(null)
+        
+        // 简化版本：创建基本用户信息
+        const basicUser: User = {
+          id: session.user.id,
+          email: session.user.email!,
+          name: session.user.user_metadata?.name || session.user.email!.split('@')[0],
+          role_in_org: 'member',
+          is_ai_assist_enabled: false,
+          settings: {},
+          organization_id: '00000000-0000-0000-0000-000000000000',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+        setUser(basicUser)
+        setLoading(false)
+      } else if (event === 'SIGNED_OUT') {
+        console.log('🚪 用户登出')
+        setSession(null)
         setUser(null)
         setLoading(false)
       }
     })
 
-    return () => subscription.unsubscribe()
-  }, [])
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [initialized])
 
   const fetchUserProfile = async (authUser: SupabaseUser) => {
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', authUser.id)
-        .single()
+    // 暂时禁用用户资料获取，避免loading问题
+    console.log('👤 跳过用户资料获取，避免loading问题')
+    setLoading(false)
+    return
+  }
 
-      if (error) {
-        console.error('Error fetching user profile:', error)
-        return
-      }
-
-      setUser(data)
-    } catch (error) {
-      console.error('Unexpected error:', error)
-    } finally {
-      setLoading(false)
-    }
+  const createUserProfile = async (authUser: SupabaseUser) => {
+    // 暂时禁用用户资料创建
+    console.log('🆕 跳过用户资料创建')
+    return
   }
 
   const signUp = async (email: string, password: string, name: string) => {
+    console.log('📝 开始注册用户:', email)
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -83,28 +137,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })
 
-    // 注意：用户资料将由数据库触发器自动创建
-    // 不需要手动插入用户记录，触发器会处理这个
-
+    console.log('注册结果:', error ? '失败' : '成功')
     return { error }
   }
 
   const signIn = async (email: string, password: string) => {
+    console.log('🔑 开始登录用户:', email)
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
+    console.log('登录结果:', error ? '失败' : '成功')
     return { error }
   }
 
   const signOut = async () => {
+    console.log('🚪 用户登出')
     await supabase.auth.signOut()
+    setSession(null)
+    setUser(null)
   }
 
   const value = {
     session,
     user,
     loading,
+    error,
+    retry,
     signIn,
     signUp,
     signOut,

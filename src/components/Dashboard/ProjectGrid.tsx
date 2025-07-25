@@ -6,9 +6,10 @@ import { zhCN } from 'date-fns/locale'
 
 interface ProjectGridProps {
   projects: Project[]
+  onCreateProject?: () => void
 }
 
-export function ProjectGrid({ projects }: ProjectGridProps) {
+export function ProjectGrid({ projects, onCreateProject }: ProjectGridProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
@@ -44,7 +45,12 @@ export function ProjectGrid({ projects }: ProjectGridProps) {
         <div className="text-center py-12">
           <FolderOpen className="h-12 w-12 text-secondary-400 mx-auto mb-4" />
           <p className="text-secondary-600 mb-4">还没有参与任何项目</p>
-          <button className="btn-primary">创建第一个项目</button>
+          <button 
+            onClick={onCreateProject}
+            className="btn-primary"
+          >
+            创建第一个项目
+          </button>
         </div>
       </div>
     )
