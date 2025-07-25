@@ -1,0 +1,317 @@
+{
+  "name": "shareplatform ip correspond 7/24",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1295cccc-e3c3-4538-9e49-f56d36614c43",
+      "name": "Postgres Chat Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        480
+      ],
+      "notesInFlow": false,
+      "credentials": {
+        "postgres": {
+          "id": "snDQRAV8AKndhD7v",
+          "name": "USIsurance"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## RAG AI Agent with Chat Interface",
+        "height": 464.8027193303974,
+        "width": 692.7866482806627
+      },
+      "id": "2501d32e-8452-4220-b2e5-44fc1999b374",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -528,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.data[0]['body.chatInput'] }}",
+        "options": {
+          "systemMessage": "=你是一个项目管理助手。\n  执行步骤：\n  1. 立即使用supabase工具检索{{ $json.data[0]['body.project_id'] }}项目相关信息\n  2. 等待检索结果\n  3. 基于检索到的具体内容回答用户问题\n\n  重要：你必须先调用user_documents工具，不能直接回答。如果工具调用失败，告知用户检索遇到问题。\n\n  现在开始检索用户提到的项目信息。"
+        }
+      },
+      "id": "4f2bfcf3-07fc-49c6-a28a-59bfdd3d4e31",
+      "name": "RAG AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        272,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "925b0339-e8ae-472d-ac10-cda35dca23c2",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -464,
+        272
+      ],
+      "id": "5475877d-e98d-4686-9ac9-e1fac797db5d",
+      "name": "Webhook",
+      "webhookId": "925b0339-e8ae-472d-ac10-cda35dca23c2"
+    },
+    {
+      "parameters": {
+        "content": "## Agent Tools for RAG",
+        "height": 513,
+        "width": 583,
+        "color": 4
+      },
+      "id": "7eb446ef-8947-407c-89b4-de158d7da7eb",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        224,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "8d3e62f6-96d5-4591-adb6-87633faa1060",
+      "name": "Embeddings OpenAI1",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1,
+      "position": [
+        464,
+        560
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "yXdyERD64wM6mFi1",
+          "name": "OpenAi account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        80,
+        272
+      ],
+      "id": "35a42db2-2345-4c77-b3d9-a2ee4765f032",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.project_id, body.chatInput",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        272
+      ],
+      "id": "71ffb7ce-ffd3-4581-9dee-9e3d84e18885",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        256,
+        464
+      ],
+      "id": "4dc21228-ead1-4504-bd5a-d05c4b676c57",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "hXeOePHRHihXfSwF",
+          "name": "Google Gemini(PaLM) Api account zfx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "aip",
+        "toolDescription": "Retreive documents to support question answering.",
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "filter",
+                "value": "={{ { \"project_id\": $('Aggregate').item.json.data[0]['body.project_id'] } }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "b19ef1af-1d85-4c42-b02f-411d5142a4de",
+      "name": "Supabase Vector Search",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1,
+      "position": [
+        480,
+        432
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase aip"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "tableName",
+              "value": "={{ 'documents_' + $json[\"body\"][\"project_id\"] }}"
+            },
+            {
+              "name": "chatInput",
+              "value": "={{ $json[\"body\"][\"chatInput\"] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d6fe4222-3a75-47f3-9a8b-8d2259a41568",
+      "name": "Set Table Name1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        272
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Postgres Chat Memory": {
+      "ai_memory": [
+        []
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Set Table Name1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Search",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Vector Search": {
+      "ai_vectorStore": [
+        []
+      ],
+      "ai_tool": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Table Name1": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "d119dc30-5ca3-428e-9d98-daf961c1baa8",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1f778c37f32963d7908a07cd31451cf3b9dce1062b27726239599616e02e8a30"
+  },
+  "id": "6qfxYdlQ8Zq9zgRP",
+  "tags": []
+}

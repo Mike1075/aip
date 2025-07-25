@@ -1,0 +1,44 @@
+{
+  "event_message": "connection authenticated: identity=\"supabase_admin\" method=scram-sha-256 (/etc/postgresql/pg_hba.conf:94)",
+  "id": "7c9dda9d-95cf-44be-bbf1-a9ae5c82e2b2",
+  "metadata": [
+    {
+      "file": null,
+      "host": "db-wfkazzdlfgurfmucuoqf",
+      "metadata": [],
+      "parsed": [
+        {
+          "application_name": null,
+          "backend_type": "client backend",
+          "command_tag": "authentication",
+          "connection_from": "2406:da18:96a:8201:e26b:bad:c1ed:1efc:52314",
+          "context": null,
+          "database_name": "postgres",
+          "detail": null,
+          "error_severity": "LOG",
+          "hint": null,
+          "internal_query": null,
+          "internal_query_pos": null,
+          "leader_pid": null,
+          "location": null,
+          "process_id": 47437,
+          "query": null,
+          "query_id": -1461064149893572600,
+          "query_pos": null,
+          "session_id": "68820c65.b94d",
+          "session_line_num": 2,
+          "session_start_time": "2025-07-24 10:35:17 UTC",
+          "sql_state_code": "00000",
+          "timestamp": "2025-07-24 10:35:17.509 UTC",
+          "transaction_id": 0,
+          "user_name": "supabase_admin",
+          "virtual_transaction_id": "48/592"
+        }
+      ],
+      "parsed_from": null,
+      "project": null,
+      "source_type": null
+    }
+  ],
+  "timestamp": 1753353317509000
+}
