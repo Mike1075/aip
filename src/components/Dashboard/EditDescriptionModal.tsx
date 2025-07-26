@@ -1,27 +1,36 @@
-import React, { useState } from 'react'
-import { X, Plus } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { X, Save } from 'lucide-react'
 
-interface CreateProjectModalProps {
+interface EditDescriptionModalProps {
   isOpen: boolean
   onClose: () => void
-  onConfirm: (projectName: string, description?: string) => void
+  onConfirm: (description: string) => void
+  projectName: string
+  currentDescription: string
   loading?: boolean
 }
 
-export function CreateProjectModal({ isOpen, onClose, onConfirm, loading = false }: CreateProjectModalProps) {
-  const [projectName, setProjectName] = useState('')
-  const [description, setDescription] = useState('')
+export function EditDescriptionModal({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  projectName, 
+  currentDescription, 
+  loading = false 
+}: EditDescriptionModalProps) {
+  const [description, setDescription] = useState(currentDescription)
+
+  useEffect(() => {
+    setDescription(currentDescription)
+  }, [currentDescription])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (projectName.trim()) {
-      onConfirm(projectName.trim(), description.trim() || undefined)
-    }
+    onConfirm(description.trim())
   }
 
   const handleClose = () => {
-    setProjectName('')
-    setDescription('')
+    setDescription(currentDescription) // 重置为原值
     onClose()
   }
 
@@ -31,7 +40,7 @@ export function CreateProjectModal({ isOpen, onClose, onConfirm, loading = false
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold text-secondary-900">创建新项目</h2>
+          <h2 className="text-xl font-semibold text-secondary-900">编辑项目描述</h2>
           <button
             onClick={handleClose}
             className="p-2 hover:bg-secondary-100 rounded-lg transition-colors"
@@ -40,26 +49,16 @@ export function CreateProjectModal({ isOpen, onClose, onConfirm, loading = false
           </button>
         </div>
 
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-secondary-700 mb-2">
-              项目名称
-            </label>
-            <input
-              type="text"
-              required
-              className="input w-full"
-              placeholder="请输入项目名称"
-              value={projectName}
-              onChange={(e) => setProjectName(e.target.value)}
-              disabled={loading}
-              autoFocus
-            />
-          </div>
+        <div className="mb-4">
+          <p className="text-sm text-secondary-600">
+            项目：<span className="font-medium text-secondary-900">{projectName}</span>
+          </p>
+        </div>
 
+        <form onSubmit={handleSubmit}>
           <div className="mb-6">
             <label className="block text-sm font-medium text-secondary-700 mb-2">
-              项目描述 <span className="text-secondary-500 font-normal">(可选)</span>
+              项目描述
             </label>
             <textarea
               className="input w-full resize-none"
@@ -67,7 +66,8 @@ export function CreateProjectModal({ isOpen, onClose, onConfirm, loading = false
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               disabled={loading}
-              rows={3}
+              rows={4}
+              autoFocus
             />
           </div>
 
@@ -82,15 +82,15 @@ export function CreateProjectModal({ isOpen, onClose, onConfirm, loading = false
             </button>
             <button
               type="submit"
-              disabled={!projectName.trim() || loading}
+              disabled={loading}
               className="btn-primary flex-1 flex items-center justify-center gap-2"
             >
               {loading ? (
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
               ) : (
                 <>
-                  <Plus className="h-4 w-4" />
-                  创建
+                  <Save className="h-4 w-4" />
+                  保存
                 </>
               )}
             </button>
