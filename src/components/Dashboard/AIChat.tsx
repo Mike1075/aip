@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 import { X, Send, Bot, User } from 'lucide-react'
+import { ProjectSelector } from './ProjectSelector'
+import { callN8nRAGAgent, callN8nRAGAgentLocal } from '../../lib/n8n'
 
 interface AIChatProps {
   onClose: () => void
@@ -17,15 +19,21 @@ export function AIChat({ onClose }: AIChatProps) {
     {
       id: '1',
       role: 'assistant',
-      content: '您好！我是您的AI项目管理助手。我可以帮您分析项目进度、分配任务、回答问题。请问有什么可以帮助您的吗？',
+      content: '您好！我是您的AI项目管理助手。我可以帮您分析项目进度、分配任务、回答问题。请选择要查询的项目，然后输入您的问题。',
       timestamp: new Date()
     }
   ])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [selectedProjects, setSelectedProjects] = useState<string[]>([])
 
   const handleSend = async () => {
     if (!input.trim()) return
+    
+    if (selectedProjects.length === 0) {
+      alert('请先选择至少一个项目')
+      return
+    }
 
     const newMessage: ChatMessage = {
       id: Date.now().toString(),
@@ -38,17 +46,32 @@ export function AIChat({ onClose }: AIChatProps) {
     setInput('')
     setIsLoading(true)
 
-    // 模拟AI回复（在实际应用中，这里会调用AI API）
-    setTimeout(() => {
+    try {
+      // 调用n8n RAG系统
+      const result = await callN8nRAGAgentLocal(
+        input.trim(),
+        selectedProjects.length === 1 ? selectedProjects[0] : selectedProjects
+      )
+
       const aiResponse: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: '感谢您的问题！在实际应用中，这里会连接到AI模型来提供智能回复。目前我们正在MVP阶段，AI功能将在后续版本中实现。',
+        content: result.success ? result.response || '收到回复但内容为空' : `调用失败: ${result.error}`,
         timestamp: new Date()
       }
+      
       setMessages(prev => [...prev, aiResponse])
+    } catch (error) {
+      const errorResponse: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: `系统错误: ${error instanceof Error ? error.message : '未知错误'}`,
+        timestamp: new Date()
+      }
+      setMessages(prev => [...prev, errorResponse])
+    } finally {
       setIsLoading(false)
-    }, 1000)
+    }
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -131,6 +154,12 @@ export function AIChat({ onClose }: AIChatProps) {
 
         {/* 输入区域 */}
         <div className="p-4 border-t border-secondary-200">
+          {/* 项目选择器 */}
+          <ProjectSelector
+            selectedProjects={selectedProjects}
+            onProjectsChange={setSelectedProjects}
+          />
+          
           <div className="flex items-end gap-3">
             <div className="flex-1">
               <textarea
@@ -144,7 +173,7 @@ export function AIChat({ onClose }: AIChatProps) {
             </div>
             <button
               onClick={handleSend}
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isLoading || selectedProjects.length === 0}
               className="btn-primary p-3 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="h-4 w-4" />

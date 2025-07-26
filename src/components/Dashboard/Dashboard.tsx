@@ -6,6 +6,8 @@ import { ProjectGrid } from './ProjectGrid'
 import { TaskList } from './TaskList'
 import { AIChat } from './AIChat'
 import { CreateProjectModal } from './CreateProjectModal'
+import { EditDescriptionModal } from './EditDescriptionModal'
+import { ProjectDetailPanel } from './ProjectDetailPanel'
 import { Plus, MessageSquare } from 'lucide-react'
 
 export function Dashboard() {
@@ -16,6 +18,11 @@ export function Dashboard() {
   const [showAIChat, setShowAIChat] = useState(false)
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [creatingProject, setCreatingProject] = useState(false)
+  const [showEditDescription, setShowEditDescription] = useState(false)
+  const [editingProject, setEditingProject] = useState<{id: string, name: string, description: string} | null>(null)
+  const [updatingDescription, setUpdatingDescription] = useState(false)
+  const [showProjectDetail, setShowProjectDetail] = useState(false)
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
 
   useEffect(() => {
     if (user) {
@@ -27,52 +34,93 @@ export function Dashboard() {
     if (!user) return
 
     try {
-      console.log('📊 开始加载仪表板数据 (本地模式)...')
+      console.log('📊 开始加载仪表板数据 (Supabase模式)...')
       
-      // 本地模式：初始化为空数组
-      console.log('📁 初始化空项目列表')
-      setProjects([])
+      // 获取用户创建的项目
+      console.log('📁 获取用户创建的项目...')
+      const { data: projectData, error: projectError } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('creator_id', user.id)
+        .order('created_at', { ascending: false })
 
-      // 任务也初始化为空
-      console.log('📋 初始化空任务列表')
+      if (projectError) {
+        console.error('❌ 获取项目失败:', projectError)
+        setProjects([])
+      } else {
+        console.log('✅ 项目获取成功:', projectData)
+        setProjects(projectData || [])
+      }
+
+      // 暂时跳过任务加载，保持简化
+      console.log('📋 暂时跳过任务加载')
       setMyTasks([])
       
     } catch (error) {
       console.error('❌ 加载仪表板数据失败:', error)
+      setProjects([])
+      setMyTasks([])
     } finally {
       setLoading(false)
     }
   }
 
-  const handleCreateProject = async (projectName: string) => {
+  const handleCreateProject = async (projectName: string, description?: string) => {
     if (!user) return
 
     setCreatingProject(true)
-    console.log('🚀 开始创建项目 (本地模式):', projectName)
-    
-    // 模拟网络延迟
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    console.log('🚀 开始创建项目 (Supabase模式):', projectName, description)
     
     try {
-      // 创建本地项目对象
-      const newProject: Project = {
-        id: `project_${Date.now()}`, // 临时ID
-        name: projectName,
-        description: '',
-        status: 'active',
-        is_public: false,
-        is_recruiting: false,
-        creator_id: user.id,
-        organization_id: '00000000-0000-0000-0000-000000000000',
-        settings: {},
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+      // 第一步：创建项目
+      console.log('📁 创建项目...')
+      const { data: project, error: projectError } = await supabase
+        .from('projects')
+        .insert([
+          {
+            name: projectName,
+            description: description || '',
+            status: 'active',
+            is_public: false,
+            is_recruiting: false,
+            creator_id: user.id,
+            organization_id: '658bb306-8e32-407e-9d5b-0c68603e8a73',
+            settings: {}
+          }
+        ])
+        .select()
+        .single()
+
+      if (projectError) {
+        console.error('❌ 项目创建失败:', projectError)
+        throw projectError
       }
 
-      console.log('✅ 本地项目创建成功:', newProject)
+      console.log('✅ 项目创建成功:', project)
+      console.log('📊 项目数据详情:', JSON.stringify(project, null, 2))
 
-      // 添加到本地状态
-      setProjects(prevProjects => [newProject, ...prevProjects])
+      // 第二步：添加创建者为项目成员
+      console.log('👥 添加项目成员...')
+      const { error: memberError } = await supabase
+        .from('project_members')
+        .insert([
+          {
+            project_id: project.id,
+            user_id: user.id,
+            role_in_project: 'manager'
+          }
+        ])
+
+      if (memberError) {
+        console.error('⚠️ 项目成员添加失败:', memberError)
+        // 不抛出错误，项目已创建成功
+      } else {
+        console.log('✅ 项目成员添加成功')
+      }
+
+      // 重新加载数据
+      console.log('🔄 重新加载数据...')
+      await loadDashboardData()
       setShowCreateProject(false)
       console.log('🎉 项目创建完成!')
       
@@ -82,6 +130,115 @@ export function Dashboard() {
     } finally {
       setCreatingProject(false)
     }
+  }
+
+  const handleDeleteProject = async (projectId: string, projectName: string) => {
+    if (!user) return
+    
+    // 确认删除
+    const confirmDelete = window.confirm(`确定要删除项目"${projectName}"吗？此操作将同时删除项目中的所有文档，且无法恢复。`)
+    if (!confirmDelete) return
+
+    try {
+      console.log('🗑️ 开始删除项目:', projectId)
+      
+      // 第一步：删除documents表中的相关数据
+      console.log('📄 删除项目文档...')
+      const { data: deletedDocs, error: documentsError } = await supabase
+        .from('documents')
+        .delete()
+        .eq('project_id', projectId)
+        .select()
+
+      if (documentsError) {
+        console.error('❌ 删除文档失败:', documentsError)
+        throw documentsError
+      }
+      console.log('📄 删除的文档数量:', deletedDocs?.length || 0)
+
+      // 第二步：删除project_members表中的相关数据
+      console.log('👥 删除项目成员...')
+      const { data: deletedMembers, error: membersError } = await supabase
+        .from('project_members')
+        .delete()
+        .eq('project_id', projectId)
+        .select()
+
+      if (membersError) {
+        console.error('❌ 删除项目成员失败:', membersError)
+        throw membersError
+      }
+      console.log('👥 删除的成员数量:', deletedMembers?.length || 0)
+
+      // 第三步：删除projects表中的项目
+      console.log('📁 删除项目...')
+      const { data: deletedProject, error: projectError } = await supabase
+        .from('projects')
+        .delete()
+        .eq('id', projectId)
+        .eq('creator_id', user.id) // 确保只能删除自己创建的项目
+        .select()
+
+      if (projectError) {
+        console.error('❌ 删除项目失败:', projectError)
+        throw projectError
+      }
+      console.log('📁 删除的项目:', deletedProject)
+
+      console.log('✅ 项目删除成功！')
+      
+      // 重新加载数据
+      console.log('🔄 开始重新加载数据...')
+      await loadDashboardData()
+      console.log('🔄 数据重新加载完成')
+      
+    } catch (error) {
+      console.error('❌ 删除项目失败:', error)
+      alert('删除项目失败，请重试')
+    }
+  }
+
+  const handleEditDescription = (projectId: string, projectName: string, currentDescription: string) => {
+    setEditingProject({ id: projectId, name: projectName, description: currentDescription })
+    setShowEditDescription(true)
+  }
+
+  const handleUpdateDescription = async (newDescription: string) => {
+    if (!user || !editingProject) return
+
+    setUpdatingDescription(true)
+    try {
+      console.log('✏️ 更新项目描述:', editingProject.id, newDescription)
+      
+      const { error } = await supabase
+        .from('projects')
+        .update({ description: newDescription })
+        .eq('id', editingProject.id)
+        .eq('creator_id', user.id) // 确保只能编辑自己的项目
+
+      if (error) {
+        console.error('❌ 更新描述失败:', error)
+        throw error
+      }
+
+      console.log('✅ 描述更新成功！')
+      
+      // 重新加载数据
+      await loadDashboardData()
+      setShowEditDescription(false)
+      setEditingProject(null)
+      
+    } catch (error) {
+      console.error('❌ 更新描述失败:', error)
+      alert('更新描述失败，请重试')
+    } finally {
+      setUpdatingDescription(false)
+    }
+  }
+
+  const handleProjectClick = (project: Project) => {
+    setSelectedProject(project)
+    setShowProjectDetail(true)
   }
 
   if (loading) {
@@ -140,6 +297,9 @@ export function Dashboard() {
               <ProjectGrid 
                 projects={projects} 
                 onCreateProject={() => setShowCreateProject(true)}
+                onDeleteProject={handleDeleteProject}
+                onEditDescription={handleEditDescription}
+                onProjectClick={handleProjectClick}
               />
             </div>
           </div>
@@ -158,6 +318,33 @@ export function Dashboard() {
         onConfirm={handleCreateProject}
         loading={creatingProject}
       />
+
+      {/* 编辑描述弹窗 */}
+      {showEditDescription && editingProject && (
+        <EditDescriptionModal
+          isOpen={showEditDescription}
+          onClose={() => {
+            setShowEditDescription(false)
+            setEditingProject(null)
+          }}
+          onConfirm={handleUpdateDescription}
+          projectName={editingProject.name}
+          currentDescription={editingProject.description}
+          loading={updatingDescription}
+        />
+      )}
+
+      {/* 项目详情面板 */}
+      {showProjectDetail && selectedProject && (
+        <ProjectDetailPanel
+          isOpen={showProjectDetail}
+          onClose={() => {
+            setShowProjectDetail(false)
+            setSelectedProject(null)
+          }}
+          project={selectedProject}
+        />
+      )}
     </div>
   )
 } 
