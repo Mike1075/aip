@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { X, FileText, Trash2, AlertTriangle } from 'lucide-react'
+import { X, FileText, Trash2, AlertTriangle, Upload } from 'lucide-react'
 import { Project } from '@/lib/supabase'
 import { supabase } from '@/lib/supabase'
+import { FileUpload } from './FileUpload'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Document {
   id: string
@@ -16,11 +18,13 @@ interface ProjectDetailPanelProps {
 }
 
 export function ProjectDetailPanel({ isOpen, onClose, project }: ProjectDetailPanelProps) {
+  const { user } = useAuth()
   const [documents, setDocuments] = useState<Document[]>([])
   const [loading, setLoading] = useState(true)
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [docToDelete, setDocToDelete] = useState<Document | null>(null)
+  const [showFileUpload, setShowFileUpload] = useState(false)
 
   useEffect(() => {
     if (isOpen && project) {
@@ -126,7 +130,16 @@ export function ProjectDetailPanel({ isOpen, onClose, project }: ProjectDetailPa
         <div className="flex-1 overflow-y-auto p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-medium text-secondary-900">项目文档</h3>
-            <span className="text-sm text-secondary-500">{documents.length} 个文档</span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-secondary-500">{documents.length} 个文档</span>
+              <button
+                onClick={() => setShowFileUpload(true)}
+                className="btn-primary btn-sm flex items-center gap-2"
+              >
+                <Upload className="h-4 w-4" />
+                上传文档
+              </button>
+            </div>
           </div>
 
           {loading ? (
@@ -212,6 +225,16 @@ export function ProjectDetailPanel({ isOpen, onClose, project }: ProjectDetailPa
             </div>
           </div>
         </div>
+      )}
+
+      {/* 文件上传弹窗 */}
+      {showFileUpload && user && (
+        <FileUpload
+          projectId={project.id}
+          userId={user.id}
+          onUploadSuccess={loadProjectDocuments}
+          onClose={() => setShowFileUpload(false)}
+        />
       )}
     </div>
   )
