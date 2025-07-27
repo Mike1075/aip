@@ -1,14 +1,18 @@
 import React from 'react'
 import { Project } from '@/lib/supabase'
-import { Calendar, Users, Activity, FolderOpen } from 'lucide-react'
+import { Calendar, Users, Activity, FolderOpen, Trash2, Edit3 } from 'lucide-react'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
 interface ProjectGridProps {
   projects: Project[]
+  onCreateProject?: () => void
+  onDeleteProject?: (projectId: string, projectName: string) => void
+  onEditDescription?: (projectId: string, projectName: string, currentDescription: string) => void
+  onProjectClick?: (project: Project) => void
 }
 
-export function ProjectGrid({ projects }: ProjectGridProps) {
+export function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEditDescription, onProjectClick }: ProjectGridProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
@@ -44,7 +48,12 @@ export function ProjectGrid({ projects }: ProjectGridProps) {
         <div className="text-center py-12">
           <FolderOpen className="h-12 w-12 text-secondary-400 mx-auto mb-4" />
           <p className="text-secondary-600 mb-4">还没有参与任何项目</p>
-          <button className="btn-primary">创建第一个项目</button>
+          <button 
+            onClick={onCreateProject}
+            className="btn-primary"
+          >
+            创建第一个项目
+          </button>
         </div>
       </div>
     )
@@ -62,14 +71,41 @@ export function ProjectGrid({ projects }: ProjectGridProps) {
           <div
             key={project.id}
             className="border border-secondary-200 rounded-lg p-4 hover:border-primary-300 hover:shadow-sm transition-all cursor-pointer"
+            onClick={() => onProjectClick?.(project)}
           >
             <div className="flex items-start justify-between mb-3">
-              <h3 className="font-semibold text-secondary-900 line-clamp-2">
+              <h3 className="font-semibold text-secondary-900 line-clamp-2 flex-1 mr-3">
                 {project.name}
               </h3>
-              <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
-                {getStatusText(project.status)}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
+                  {getStatusText(project.status)}
+                </span>
+                {onEditDescription && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEditDescription(project.id, project.name, project.description || '')
+                    }}
+                    className="p-1 hover:bg-blue-50 rounded-md transition-colors group"
+                    title="编辑描述"
+                  >
+                    <Edit3 className="h-4 w-4 text-secondary-400 group-hover:text-blue-500" />
+                  </button>
+                )}
+                {onDeleteProject && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDeleteProject(project.id, project.name)
+                    }}
+                    className="p-1 hover:bg-red-50 rounded-md transition-colors group"
+                    title="删除项目"
+                  >
+                    <Trash2 className="h-4 w-4 text-secondary-400 group-hover:text-red-500" />
+                  </button>
+                )}
+              </div>
             </div>
             
             {project.description && (
