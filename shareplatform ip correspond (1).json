@@ -1,0 +1,345 @@
+{
+  "name": "shareplatform ip correspond",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a153e980-d332-4a5a-9ec8-19e08f3029b5",
+      "name": "Postgres Chat Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        480
+      ],
+      "notesInFlow": false,
+      "credentials": {
+        "postgres": {
+          "id": "snDQRAV8AKndhD7v",
+          "name": "USIsurance"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## RAG AI Agent with Chat Interface",
+        "height": 464.8027193303974,
+        "width": 692.7866482806627
+      },
+      "id": "4f515c2b-db11-4929-a922-8db1dff3376f",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -528,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.data[0]['body.project_id'] }}{{ $json.data[0]['body.chatInput'] }}",
+        "options": {
+          "systemMessage": "=你会根据用户的projectID来调用supabase来定位到特定的table，并且获得相应的资料"
+        }
+      },
+      "id": "0db6bbea-441a-4aee-b4f6-292993451244",
+      "name": "RAG AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        -144,
+        256
+      ],
+      "notes": "用户的第1句是他所属的项目ID，你要根据他的项目ID来定位到对应的table。"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "7b561498-ed4f-4dd1-bb00-0caa8f983561",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        272
+      ],
+      "id": "c759c4ac-5604-4a4a-a0b2-18addf3cde89",
+      "name": "Webhook",
+      "webhookId": "7b561498-ed4f-4dd1-bb00-0caa8f983561"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "9f288350-b3db-44af-af49-54bb6b944ed4",
+      "name": "OpenAI Chat Model2",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        592,
+        576
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "yXdyERD64wM6mFi1",
+          "name": "OpenAi account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "user_documents",
+        "description": "根据用户的projectID找到对应的table，在检索相关内容。如果用户的projectID是projecta，那么你就要去projecta的table下找资料。"
+      },
+      "id": "c4dfae13-9429-4201-b03d-2cda57905d23",
+      "name": "Retrieve Documents1",
+      "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
+      "typeVersion": 1,
+      "position": [
+        448,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Agent Tools for RAG",
+        "height": 513,
+        "width": 583,
+        "color": 4
+      },
+      "id": "c4e5e677-4115-4a35-ad03-d3d17c46cbc7",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        288,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "d963af50-14e4-4b2f-bc65-19e48151a2b3",
+      "name": "Embeddings OpenAI1",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1,
+      "position": [
+        352,
+        688
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "yXdyERD64wM6mFi1",
+          "name": "OpenAi account 3"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableName": {
+          "__rl": true,
+          "value": "rpc/search_across_projects",
+          "mode": "list",
+          "cachedResultName": "rpc/search_across_projects"
+        },
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "filter",
+                "value": "=={{ { \"project_ids\": $('Webhook').item.json.project_ids } }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "072795ec-0c64-41d8-bea5-b2526ff00773",
+      "name": "Supabase Vector Store1",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1,
+      "position": [
+        304,
+        560
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase zfx shareplatform"
+        }
+      },
+      "notes": "你会根据用户的projectID定位到特定的table，然后再进行资料检索。"
+    },
+    {
+      "parameters": {
+        "content": "用id检索，应该可以跨table"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        592,
+        688
+      ],
+      "id": "fac99c88-4b56-4e8f-9072-a6a193f900b8",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -336,
+        272
+      ],
+      "id": "59416b85-23a8-4e45-9266-deb8406897c3",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.project_id, body.chatInput",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -496,
+        272
+      ],
+      "id": "4f3f6f81-4c81-467a-b180-6266b6400f6c",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        464
+      ],
+      "id": "5beef2e4-e275-4340-8d59-ea634d89caf5",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "hXeOePHRHihXfSwF",
+          "name": "Google Gemini(PaLM) Api account zfx"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Postgres Chat Memory": {
+      "ai_memory": [
+        []
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Retrieve Documents1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Store1",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Vector Store1": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Retrieve Documents1",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retrieve Documents1": {
+      "ai_tool": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "9ed562d1-3381-4aeb-8152-383243970fa4",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1f778c37f32963d7908a07cd31451cf3b9dce1062b27726239599616e02e8a30"
+  },
+  "id": "Y7lDbB37JtjaQlWF",
+  "tags": []
+}
