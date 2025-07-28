@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Building2, Users, Home, Settings } from 'lucide-react'
+import { Building2, Users, Home, Settings, LogOut, User, Globe, Menu } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Organization, Project } from '@/lib/supabase'
 import { Dashboard } from './Dashboard'
@@ -7,23 +7,44 @@ import { OrganizationList } from './OrganizationList'
 import { OrganizationDetail } from './OrganizationDetail'
 import { ProjectSettings } from './ProjectSettings'
 import { ProjectDetailPage } from './ProjectDetailPage'
+import { MyOrganizations } from './MyOrganizations'
+import { OrganizationSidebar } from './OrganizationSidebar'
 
-type ViewType = 'dashboard' | 'organizations' | 'organization-detail' | 'project-settings' | 'project-detail'
+type ViewType = 'dashboard' | 'my-organizations' | 'explore-organizations' | 'organization-detail' | 'project-settings' | 'project-detail' | 'create-organization'
 
 export function MainDashboard() {
   const { user, signOut, isGuest } = useAuth()
-  const [currentView, setCurrentView] = useState<ViewType>(isGuest ? 'organizations' : 'dashboard')
+  const [currentView, setCurrentView] = useState<ViewType>(isGuest ? 'explore-organizations' : 'my-organizations')
   const [selectedOrganization, setSelectedOrganization] = useState<Organization | null>(null)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const [showUserMenu, setShowUserMenu] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
-  const handleNavigateToOrganizations = () => {
-    setCurrentView('organizations')
+  // 导航处理函数
+  const handleNavigateToMyOrganizations = () => {
+    setCurrentView('my-organizations')
     setSelectedOrganization(null)
+    setSelectedProject(null)
   }
 
-  const handleSelectOrganization = (org: Organization) => {
+  const handleNavigateToExploreOrganizations = () => {
+    setCurrentView('explore-organizations')
+    setSelectedOrganization(null)
+    setSelectedProject(null)
+  }
+
+  const handleSelectOrganizationForWorkspace = (org: Organization) => {
+    // 从"我的组织"选择组织进入工作台
+    setSelectedOrganization(org)
+    setCurrentView('dashboard')
+    setSelectedProject(null)
+  }
+
+  const handleSelectOrganizationForExplore = (org: Organization) => {
+    // 从"探索组织"进入组织详情
     setSelectedOrganization(org)
     setCurrentView('organization-detail')
+    setSelectedProject(null)
   }
 
   const handleSelectProject = (project: Project) => {
@@ -36,41 +57,38 @@ export function MainDashboard() {
     setCurrentView('project-detail')
   }
 
-  const handleBackToOrganizations = () => {
-    setCurrentView('organizations')
+  const handleCreateOrganization = () => {
+    setCurrentView('create-organization')
+  }
+
+  const handleSidebarOrganizationSelect = (org: Organization) => {
+    setSelectedOrganization(org)
+    setCurrentView('dashboard')
+    setSelectedProject(null)
+    setSidebarOpen(false)
+  }
+
+  const handleBackToMyOrganizations = () => {
+    setCurrentView('my-organizations')
     setSelectedOrganization(null)
+    setSelectedProject(null)
+  }
+
+  const handleBackToExploreOrganizations = () => {
+    setCurrentView('explore-organizations')
+    setSelectedOrganization(null)
+    setSelectedProject(null)
   }
 
   const handleBackToOrganizationDetail = () => {
     if (selectedOrganization) {
       setCurrentView('organization-detail')
     } else {
-      setCurrentView('organizations')
+      setCurrentView('explore-organizations')
     }
     setSelectedProject(null)
   }
 
-  const handleGoToDashboard = () => {
-    // 跳转到用户工作台（从组织详情页）
-    if (isGuest) {
-      alert('请先登录才能创建项目')
-      return
-    }
-    setCurrentView('dashboard')
-    setSelectedOrganization(null)
-    setSelectedProject(null)
-  }
-
-  const handleBackToDashboard = () => {
-    // 游客用户无法访问工作台，重定向到组织列表
-    if (isGuest) {
-      setCurrentView('organizations')
-    } else {
-      setCurrentView('dashboard')
-    }
-    setSelectedOrganization(null)
-    setSelectedProject(null)
-  }
 
   const handleProjectSave = (updatedProject: Project) => {
     setSelectedProject(updatedProject)
@@ -80,20 +98,51 @@ export function MainDashboard() {
   const renderContent = () => {
     switch (currentView) {
       case 'dashboard':
-        // 游客用户无法访问工作台，重定向到组织列表
+        // 组织工作台 - 需要选中组织且用户已登录
         if (isGuest) {
           return (
-            <OrganizationList 
-              onSelectOrganization={handleSelectOrganization}
+            <MyOrganizations 
+              onSelectOrganization={handleSelectOrganizationForWorkspace}
+              onCreateOrganization={handleCreateOrganization}
             />
           )
         }
-        return <Dashboard />
+        return selectedOrganization ? (
+          <Dashboard organization={selectedOrganization} />
+        ) : (
+          <MyOrganizations 
+            onSelectOrganization={handleSelectOrganizationForWorkspace}
+            onCreateOrganization={handleCreateOrganization}
+          />
+        )
       
-      case 'organizations':
+      case 'my-organizations':
+        if (isGuest) {
+          return (
+            <OrganizationList 
+              onSelectOrganization={handleSelectOrganizationForExplore}
+            />
+          )
+        }
+        return (
+          <MyOrganizations 
+            onSelectOrganization={handleSelectOrganizationForWorkspace}
+            onCreateOrganization={handleCreateOrganization}
+          />
+        )
+      
+      case 'explore-organizations':
         return (
           <OrganizationList 
-            onSelectOrganization={handleSelectOrganization}
+            onSelectOrganization={handleSelectOrganizationForExplore}
+          />
+        )
+        
+      case 'create-organization':
+        return (
+          <OrganizationList 
+            onSelectOrganization={handleSelectOrganizationForExplore}
+            showCreateModal={true}
           />
         )
       
@@ -101,19 +150,24 @@ export function MainDashboard() {
         return selectedOrganization ? (
           <OrganizationDetail
             organization={selectedOrganization}
-            onBack={handleBackToOrganizations}
+            onBack={handleBackToExploreOrganizations}
             onSelectProject={handleSelectProject}
             onViewProject={handleViewProject}
-            onCreateProject={handleGoToDashboard}
+            onCreateProject={() => {
+              if (isGuest) {
+                alert('请先登录才能创建项目')
+                return
+              }
+              setCurrentView('dashboard')
+            }}
           />
         ) : null
       
       case 'project-settings':
-        // 游客用户无法访问项目设置
         if (isGuest) {
           return (
             <OrganizationList 
-              onSelectOrganization={handleSelectOrganization}
+              onSelectOrganization={handleSelectOrganizationForExplore}
             />
           )
         }
@@ -137,106 +191,136 @@ export function MainDashboard() {
       default:
         return isGuest ? (
           <OrganizationList 
-            onSelectOrganization={handleSelectOrganization}
+            onSelectOrganization={handleSelectOrganizationForExplore}
           />
-        ) : <Dashboard />
+        ) : (
+          <MyOrganizations 
+            onSelectOrganization={handleSelectOrganizationForWorkspace}
+            onCreateOrganization={handleCreateOrganization}
+          />
+        )
     }
   }
 
   return (
-    <div className="min-h-screen bg-secondary-50">
+    <div className="min-h-screen bg-gradient-to-br from-secondary-50 to-primary-50">
       {/* 顶部导航栏 */}
-      <nav className="bg-white border-b border-secondary-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary-600 rounded-lg">
-                <Building2 className="h-6 w-6 text-white" />
-              </div>
-              <h1 className="text-xl font-bold text-secondary-900">
-                AI项目管理平台
-              </h1>
-            </div>
-            
-            <div className="flex items-center gap-1">
-              {/* 游客用户不显示工作台按钮 */}
+      <nav className="bg-white/90 backdrop-blur-sm border-b border-secondary-200/50 shadow-sm sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            {/* Logo和品牌 */}
+            <div className="flex items-center gap-8">
+              {/* 汉堡菜单按钮 */}
               {!isGuest && (
                 <button
-                  onClick={handleBackToDashboard}
-                  className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                    currentView === 'dashboard'
-                      ? 'bg-primary-100 text-primary-700'
-                      : 'text-secondary-600 hover:text-secondary-900 hover:bg-secondary-100'
-                  }`}
+                  onClick={() => setSidebarOpen(true)}
+                  className="p-2 hover:bg-secondary-100 rounded-lg transition-colors"
+                  title="我的组织"
                 >
-                  <Home className="h-4 w-4 mr-2 inline" />
-                  我的工作台
+                  <Menu className="h-5 w-5 text-secondary-600" />
                 </button>
               )}
               
-              <button
-                onClick={handleNavigateToOrganizations}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  currentView === 'organizations' || currentView === 'organization-detail'
-                    ? 'bg-primary-100 text-primary-700'
-                    : 'text-secondary-600 hover:text-secondary-900 hover:bg-secondary-100'
-                }`}
-              >
-                <Building2 className="h-4 w-4 mr-2 inline" />
-                探索组织
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {user ? (
               <div className="flex items-center gap-3">
-                <div className="text-right">
-                  <p className="text-sm font-medium text-secondary-900">{user.name}</p>
-                  <p className="text-xs text-secondary-600">{user.email}</p>
+                <div className="p-2 bg-gradient-to-r from-primary-500 to-primary-600 rounded-xl shadow-lg">
+                  <Building2 className="h-6 w-6 text-white" />
                 </div>
-                <div className="h-8 w-8 bg-primary-100 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-medium text-primary-600">
-                    {user.name?.charAt(0) || '?'}
-                  </span>
+                <div>
+                  <h1 className="text-xl font-bold bg-gradient-to-r from-primary-600 to-primary-800 bg-clip-text text-transparent">
+                    AI项目管理平台
+                  </h1>
+                  {selectedOrganization && currentView === 'dashboard' && (
+                    <p className="text-sm text-secondary-600">
+                      {selectedOrganization.name}
+                    </p>
+                  )}
                 </div>
-                <button
-                  onClick={signOut}
-                  className="text-secondary-600 hover:text-secondary-900 transition-colors"
-                >
-                  <Settings className="h-5 w-5" />
-                </button>
               </div>
-            ) : isGuest ? (
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Users className="h-5 w-5 text-secondary-500" />
-                  <span className="text-sm text-secondary-600">游客模式</span>
+              
+              {/* 导航标签 */}
+              {!isGuest && (
+                <nav className="flex items-center gap-1">
+                  <button
+                    onClick={handleNavigateToMyOrganizations}
+                    className={`nav-tab ${currentView === 'my-organizations' || currentView === 'dashboard' ? 'nav-tab-active' : 'nav-tab-inactive'}`}
+                  >
+                    <Building2 className="h-4 w-4" />
+                    我的组织
+                  </button>
+                  <button
+                    onClick={handleNavigateToExploreOrganizations}
+                    className={`nav-tab ${currentView === 'explore-organizations' || currentView === 'organization-detail' ? 'nav-tab-active' : 'nav-tab-inactive'}`}
+                  >
+                    <Globe className="h-4 w-4" />
+                    探索组织
+                  </button>
+                </nav>
+              )}
+            </div>
+            
+            {/* 用户菜单 */}
+            <div className="flex items-center gap-3">
+              {user ? (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowUserMenu(!showUserMenu)}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-secondary-50 transition-colors"
+                  >
+                    <div className="text-right">
+                      <p className="text-sm font-medium text-secondary-900">{user.name}</p>
+                      <p className="text-xs text-secondary-500">
+                        {isGuest ? '游客模式' : user.email}
+                      </p>
+                    </div>
+                    <div className="h-9 w-9 bg-gradient-to-r from-primary-500 to-primary-600 rounded-full flex items-center justify-center shadow-sm">
+                      <span className="text-sm font-medium text-white">
+                        {user.name?.charAt(0)?.toUpperCase() || '?'}
+                      </span>
+                    </div>
+                  </button>
+                  
+                  {showUserMenu && (
+                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-secondary-200 py-2 z-50">
+                      <button
+                        onClick={() => {
+                          signOut()
+                          setShowUserMenu(false)
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-secondary-700 hover:bg-secondary-50 flex items-center gap-2"
+                      >
+                        <LogOut className="h-4 w-4" />
+                        {isGuest ? '登录' : '退出登录'}
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <span className="text-xs text-secondary-500">
-                  登录后可查看更多组织与项目
-                </span>
+              ) : (
                 <button
                   onClick={signOut}
-                  className="px-3 py-1.5 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors shadow-sm"
                 >
+                  <User className="h-4 w-4" />
                   登录
                 </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <Users className="h-5 w-5 text-secondary-500" />
-                <span className="text-sm text-secondary-600">未登录</span>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </nav>
 
       {/* 主内容区域 */}
-      <main className="px-6 py-8">
-        {renderContent()}
+      <main className="py-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {renderContent()}
+        </div>
       </main>
+
+      {/* 组织侧边栏 */}
+      <OrganizationSidebar 
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        onSelectOrganization={handleSidebarOrganizationSelect}
+      />
     </div>
   )
 }

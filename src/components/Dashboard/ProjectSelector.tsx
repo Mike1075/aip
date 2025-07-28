@@ -1,25 +1,43 @@
 import React, { useState, useEffect } from 'react'
 import { Check, Folder } from 'lucide-react'
 import { getUserProjects, UserProject } from '../../lib/n8n'
+import { Organization, organizationAPI } from '@/lib/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface ProjectSelectorProps {
   selectedProjects: string[]
   onProjectsChange: (projectIds: string[]) => void
+  organization?: Organization
 }
 
-export function ProjectSelector({ selectedProjects, onProjectsChange }: ProjectSelectorProps) {
+export function ProjectSelector({ selectedProjects, onProjectsChange, organization }: ProjectSelectorProps) {
+  const { user } = useAuth()
   const [projects, setProjects] = useState<UserProject[]>([])
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
     loadProjects()
-  }, [])
+  }, [organization])
 
   const loadProjects = async () => {
     try {
       setIsLoading(true)
-      const userProjects = await getUserProjects()
-      setProjects(userProjects)
+      
+      if (organization && user) {
+        // 如果有组织上下文，只获取该组织的项目
+        const orgProjects = await organizationAPI.getOrganizationProjects(organization.id, user.id)
+        // 转换为UserProject格式
+        const userProjects: UserProject[] = orgProjects.map(project => ({
+          id: project.id,
+          name: project.name,
+          description: project.description || ''
+        }))
+        setProjects(userProjects)
+      } else {
+        // 没有组织上下文时，获取用户所有项目
+        const userProjects = await getUserProjects()
+        setProjects(userProjects)
+      }
     } catch (error) {
       console.error('加载项目失败:', error)
     } finally {

@@ -35,6 +35,17 @@ export interface ChatRecord {
   created_at: string
 }
 
+// 项目文档接口（基于现有的documents表）
+export interface ProjectDocument {
+  id: string
+  title: string
+  content: string
+  metadata: any
+  project_id: string
+  user_id: string
+  created_at: string
+}
+
 export const callN8nRAGAgent = async (
   chatInput: string,
   projectId: string | string[]
@@ -257,6 +268,15 @@ export const uploadDocumentToN8n = async (
     // n8n可能返回500但实际处理成功，所以我们检查响应内容
     if (response.ok || (response.status === 500 && result)) {
       console.log('✅ 文件上传成功:', result)
+      
+      // 上传成功后，保存文档记录到数据库
+      try {
+        await saveDocumentRecord(file, projectId, title, userId)
+      } catch (dbError) {
+        console.error('⚠️ 保存文档记录失败（但文件上传成功）:', dbError)
+        // 不影响主要的上传流程
+      }
+      
       return {
         success: true,
         response: result
@@ -353,4 +373,76 @@ export const getChatRecords = async (limit = 20): Promise<ChatRecord[]> => {
     console.error('❌ 获取聊天记录异常:', error)
     return []
   }
+}
+
+// 获取项目文档列表
+export const getProjectDocuments = async (projectId: string): Promise<ProjectDocument[]> => {
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabase = createClient(
+      import.meta.env.VITE_SUPABASE_URL,
+      import.meta.env.VITE_SUPABASE_ANON_KEY
+    )
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return []
+
+    console.log('📚 获取项目文档列表...', { projectId })
+
+    // 查询项目文档（使用现有的documents表）
+    const { data, error } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('❌ 获取项目文档失败:', error)
+      return []
+    }
+
+    console.log('✅ 获取项目文档成功，文档数:', data?.length || 0)
+    return data || []
+  } catch (error) {
+    console.error('❌ 获取项目文档异常:', error)
+    return []
+  }
+}
+
+// 保存文档记录到数据库（使用现有的documents表）
+const saveDocumentRecord = async (
+  file: File,
+  projectId: string,
+  title: string,
+  userId: string
+): Promise<void> => {
+  const { createClient } = await import('@supabase/supabase-js')
+  const supabase = createClient(
+    import.meta.env.VITE_SUPABASE_URL,
+    import.meta.env.VITE_SUPABASE_ANON_KEY
+  )
+
+  console.log('💾 保存文档记录到数据库...', { title, filename: file.name, projectId })
+
+  const { error } = await supabase
+    .from('documents')
+    .insert({
+      title: title,
+      content: '', // 初始内容为空，n8n处理后会更新
+      metadata: {
+        filename: file.name,
+        file_type: file.type,
+        file_size: file.size,
+        upload_status: 'processing'
+      },
+      project_id: projectId,
+      user_id: userId
+    })
+
+  if (error) {
+    console.error('❌ 保存文档记录失败:', error)
+    throw error
+  }
+  
+  console.log('✅ 文档记录保存成功')
 }

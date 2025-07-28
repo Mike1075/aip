@@ -1,16 +1,19 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { supabase, Project, Task } from '@/lib/supabase'
-import { Sidebar } from './Sidebar'
+import { supabase, Project, Task, Organization, organizationAPI } from '@/lib/supabase'
 import { ProjectGrid } from './ProjectGrid'
 import { TaskList } from './TaskList'
 import { AIChat } from './AIChat'
 import { CreateProjectModal } from './CreateProjectModal'
 import { EditDescriptionModal } from './EditDescriptionModal'
 import { ProjectDetailPage } from './ProjectDetailPage'
-import { Plus, MessageSquare } from 'lucide-react'
+import { Plus, MessageSquare, Building2, Users, Trophy } from 'lucide-react'
 
-export function Dashboard() {
+interface DashboardProps {
+  organization?: Organization
+}
+
+export function Dashboard({ organization }: DashboardProps) {
   const { user, signOut } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [myTasks, setMyTasks] = useState<Task[]>([])
@@ -25,32 +28,23 @@ export function Dashboard() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
 
   useEffect(() => {
-    if (user) {
+    if (user && organization) {
       loadDashboardData()
     }
-  }, [user])
+  }, [user, organization])
 
   const loadDashboardData = async () => {
-    if (!user) return
+    if (!user || !organization) return
 
     try {
-      console.log('📊 开始加载仪表板数据 (Supabase模式)...')
+      console.log('📊 开始加载组织工作台数据...', organization.name)
       
-      // 获取用户创建的项目
-      console.log('📁 获取用户创建的项目...')
-      const { data: projectData, error: projectError } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('creator_id', user.id)
-        .order('created_at', { ascending: false })
-
-      if (projectError) {
-        console.error('❌ 获取项目失败:', projectError)
-        setProjects([])
-      } else {
-        console.log('✅ 项目获取成功:', projectData)
-        setProjects(projectData || [])
-      }
+      // 获取当前组织的项目（用户参与的）
+      console.log('📁 获取组织项目...')
+      const projects = await organizationAPI.getOrganizationProjects(organization.id, user.id)
+      
+      setProjects(projects)
+      console.log(`✅ 加载了 ${projects.length} 个项目`)
 
       // 暂时跳过任务加载，保持简化
       console.log('📋 暂时跳过任务加载')
@@ -66,7 +60,7 @@ export function Dashboard() {
   }
 
   const handleCreateProject = async (projectName: string, description?: string) => {
-    if (!user) return
+    if (!user || !organization) return
 
     setCreatingProject(true)
     console.log('🚀 开始创建项目 (Supabase模式):', projectName, description)
@@ -84,7 +78,7 @@ export function Dashboard() {
             is_public: false,
             is_recruiting: false,
             creator_id: user.id,
-            organization_id: '658bb306-8e32-407e-9d5b-0c68603e8a73',
+            organization_id: organization.id,
             settings: {}
           }
         ])
@@ -311,13 +305,9 @@ export function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-secondary-50 flex">
-      {/* 侧边栏 */}
-      <Sidebar user={user} onSignOut={signOut} />
-      
+    <div className="min-h-screen bg-secondary-50">
       {/* 主内容区 */}
-      <div className="flex-1 lg:ml-64">
-        <div className="p-6">
+      <div className="flex-1">
           {showProjectDetail && selectedProject ? (
             <ProjectDetailPage 
               project={selectedProject}
@@ -327,9 +317,19 @@ export function Dashboard() {
             <>
               {/* 页头 */}
               <div className="mb-8">
-                <h1 className="text-3xl font-bold text-secondary-900 mb-2">
-                  欢迎回来，{user?.name || '用户'}！
-                </h1>
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 bg-primary-100 rounded-xl">
+                    <Building2 className="h-6 w-6 text-primary-600" />
+                  </div>
+                  <div>
+                    <h1 className="text-3xl font-bold text-secondary-900">
+                      {organization?.name || '组织工作台'}
+                    </h1>
+                    <p className="text-secondary-600">
+                      欢迎回来，{user?.name || '用户'}！
+                    </p>
+                  </div>
+                </div>
                 <p className="text-secondary-600">
                   您有 {myTasks.length} 个待处理任务，{projects.length} 个活跃项目
                 </p>
@@ -375,12 +375,11 @@ export function Dashboard() {
               </div>
             </>
           )}
-        </div>
       </div>
 
       {/* AI聊天弹窗 */}
       {showAIChat && (
-        <AIChat onClose={() => setShowAIChat(false)} />
+        <AIChat onClose={() => setShowAIChat(false)} organization={organization} />
       )}
 
       {/* 创建项目弹窗 */}

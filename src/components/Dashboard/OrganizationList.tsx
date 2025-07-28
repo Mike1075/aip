@@ -5,14 +5,15 @@ import { useAuth } from '@/contexts/AuthContext'
 
 interface OrganizationListProps {
   onSelectOrganization: (org: Organization) => void
+  showCreateModal?: boolean
 }
 
-export function OrganizationList({ onSelectOrganization }: OrganizationListProps) {
+export function OrganizationList({ onSelectOrganization, showCreateModal: initialShowCreateModal = false }: OrganizationListProps) {
   const { user } = useAuth()
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [orgProjects, setOrgProjects] = useState<Record<string, Project[]>>({})
   const [loading, setLoading] = useState(true)
-  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showCreateModal, setShowCreateModal] = useState(initialShowCreateModal)
   const [creating, setCreating] = useState(false)
   const [formData, setFormData] = useState({
     name: '',
@@ -72,6 +73,7 @@ export function OrganizationList({ onSelectOrganization }: OrganizationListProps
       setCreating(false)
     }
   }
+
 
   if (loading) {
     return (
@@ -202,6 +204,7 @@ export function OrganizationList({ onSelectOrganization }: OrganizationListProps
                     </div>
                   </div>
                 )}
+
               </div>
             )
           })}

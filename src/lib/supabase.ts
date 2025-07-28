@@ -346,5 +346,48 @@ export const organizationAPI = {
           })
       }
     }
+  },
+
+  // 删除组织（仅创建者可删除）
+  async deleteOrganization(organizationId: string, userId: string): Promise<void> {
+    // 1. 检查用户是否为组织管理员
+    const { data: userOrg, error: checkError } = await supabase
+      .from('user_organizations')
+      .select('role_in_org')
+      .eq('user_id', userId)
+      .eq('organization_id', organizationId)
+      .single()
+    
+    if (checkError || !userOrg || userOrg.role_in_org !== 'admin') {
+      throw new Error('只有组织管理员可以删除组织')
+    }
+
+    // 2. 检查组织内是否还有项目
+    const { data: projects, error: projectError } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('organization_id', organizationId)
+    
+    if (projectError) throw projectError
+    
+    if (projects && projects.length > 0) {
+      throw new Error('请先删除组织内的所有项目，然后再删除组织')
+    }
+
+    // 3. 删除用户-组织关联
+    const { error: memberError } = await supabase
+      .from('user_organizations')
+      .delete()
+      .eq('organization_id', organizationId)
+    
+    if (memberError) throw memberError
+
+    // 4. 删除组织
+    const { error: orgError } = await supabase
+      .from('organizations')
+      .delete()
+      .eq('id', organizationId)
+    
+    if (orgError) throw orgError
   }
 } 

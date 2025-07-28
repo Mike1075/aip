@@ -1,6 +1,6 @@
-import React, { useState, useCallback } from 'react'
-import { Upload, File, X, CheckCircle, AlertCircle } from 'lucide-react'
-import { uploadDocumentToN8n } from '../../lib/n8n'
+import React, { useState, useCallback, useEffect } from 'react'
+import { Upload, File, X, CheckCircle, AlertCircle, Clock, FileText } from 'lucide-react'
+import { uploadDocumentToN8n, getProjectDocuments, ProjectDocument } from '../../lib/n8n'
 
 interface FileUploadProps {
   projectId: string
@@ -21,6 +21,25 @@ interface UploadFile {
 export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: FileUploadProps) {
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([])
   const [isDragging, setIsDragging] = useState(false)
+  const [existingDocuments, setExistingDocuments] = useState<ProjectDocument[]>([])
+  const [loadingDocuments, setLoadingDocuments] = useState(true)
+
+  // 加载项目历史文档
+  useEffect(() => {
+    loadExistingDocuments()
+  }, [projectId])
+
+  const loadExistingDocuments = async () => {
+    try {
+      setLoadingDocuments(true)
+      const documents = await getProjectDocuments(projectId)
+      setExistingDocuments(documents)
+    } catch (error) {
+      console.error('加载历史文档失败:', error)
+    } finally {
+      setLoadingDocuments(false)
+    }
+  }
 
   const acceptedTypes = [
     'application/pdf',
@@ -101,6 +120,8 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
             ? { ...f, status: 'success', progress: 100 }
             : f
         ))
+        // 重新加载历史文档列表
+        loadExistingDocuments()
       } else {
         throw new Error(result.error || '上传失败')
       }
@@ -176,6 +197,59 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
         </div>
 
         <div className="flex-1 overflow-y-auto p-6">
+          {/* 历史文档列表 */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold text-secondary-900 mb-4 flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              项目历史文档
+            </h3>
+            
+            {loadingDocuments ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600" />
+                <span className="ml-2 text-secondary-600">加载中...</span>
+              </div>
+            ) : existingDocuments.length === 0 ? (
+              <div className="text-center py-8 text-secondary-500">
+                <FileText className="h-12 w-12 text-secondary-300 mx-auto mb-2" />
+                <p>此项目暂无文档</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {existingDocuments.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center gap-3 p-3 bg-secondary-50 rounded-lg hover:bg-secondary-100 transition-colors"
+                  >
+                    <span className="text-lg">{getFileIcon({ type: doc.metadata?.file_type || 'text/plain' } as File)}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-secondary-900 truncate">{doc.title}</p>
+                      <div className="flex items-center gap-2 text-xs text-secondary-500">
+                        {doc.metadata?.filename && (
+                          <>
+                            <span>{doc.metadata.filename}</span>
+                            <span>•</span>
+                          </>
+                        )}
+                        {doc.metadata?.file_size && (
+                          <>
+                            <span>{(doc.metadata.file_size / 1024 / 1024).toFixed(2)} MB</span>
+                            <span>•</span>
+                          </>
+                        )}
+                        <Clock className="h-3 w-3" />
+                        <span>{new Date(doc.created_at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 分隔线 */}
+          <div className="border-t border-secondary-200 mb-6"></div>
+
           {/* 拖拽上传区域 */}
           <div
             className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors mb-6 ${

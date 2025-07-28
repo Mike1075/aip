@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { X, Send, Bot, User, ChevronDown, ChevronUp, Trash2, RotateCcw } from 'lucide-react'
 import { ProjectSelector } from './ProjectSelector'
 import { callN8nRAGAgent, callN8nRAGAgentLocal, getChatRecords, saveChatRecord } from '../../lib/n8n'
+import { Organization } from '@/lib/supabase'
 
 interface AIChatProps {
   onClose: () => void
+  organization?: Organization
 }
 
 interface ChatMessage {
@@ -14,7 +16,7 @@ interface ChatMessage {
   timestamp: Date
 }
 
-export function AIChat({ onClose }: AIChatProps) {
+export function AIChat({ onClose, organization }: AIChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -301,6 +303,7 @@ export function AIChat({ onClose }: AIChatProps) {
                 <ProjectSelector
                   selectedProjects={selectedProjects}
                   onProjectsChange={setSelectedProjects}
+                  organization={organization}
                 />
               </div>
             )}
