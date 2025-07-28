@@ -127,6 +127,7 @@ export const organizationAPI = {
 
   // 获取用户所属的组织
   async getUserOrganizations(userId: string): Promise<Organization[]> {
+    console.log('supabase getUserOrganizations 调用，用户ID:', userId)
     const { data, error } = await supabase
       .from('user_organizations')
       .select(`
@@ -136,8 +137,11 @@ export const organizationAPI = {
       `)
       .eq('user_id', userId)
     
+    console.log('user_organizations 查询结果:', { data, error })
     if (error) throw error
-    return data?.map(item => item.organizations).filter(Boolean) || []
+    const result = data?.map(item => item.organizations).filter(Boolean) || []
+    console.log('最终返回的组织列表:', result)
+    return result
   },
 
   // 创建组织

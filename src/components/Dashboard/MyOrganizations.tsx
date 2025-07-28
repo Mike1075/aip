@@ -25,8 +25,10 @@ export function MyOrganizations({ onSelectOrganization, onCreateOrganization }: 
     if (!user) return
     
     try {
+      console.log('开始加载用户组织，用户ID:', user.id)
       // 获取用户所属的组织
       const organizations = await organizationAPI.getUserOrganizations(user.id)
+      console.log('获取到的组织列表:', organizations)
       setMyOrganizations(organizations)
 
       // 为每个组织加载项目数据
@@ -90,16 +92,18 @@ export function MyOrganizations({ onSelectOrganization, onCreateOrganization }: 
           </p>
         </div>
 
-        {/* 创建组织按钮 */}
-        <div className="flex justify-center mb-8">
-          <button
-            onClick={onCreateOrganization}
-            className="btn-primary flex items-center gap-2 text-lg px-8 py-3 shadow-lg hover:shadow-xl transition-all"
-          >
-            <Plus className="h-5 w-5" />
-            创建新组织
-          </button>
-        </div>
+        {/* 创建组织按钮 - 只在有组织时显示 */}
+        {myOrganizations.length > 0 && (
+          <div className="flex justify-center mb-8">
+            <button
+              onClick={onCreateOrganization}
+              className="btn-primary flex items-center gap-2 text-lg px-8 py-3 shadow-lg hover:shadow-xl transition-all"
+            >
+              <Plus className="h-5 w-5" />
+              创建新组织
+            </button>
+          </div>
+        )}
 
         {myOrganizations.length === 0 ? (
           <div className="text-center py-16">
