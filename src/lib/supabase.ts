@@ -140,6 +140,40 @@ export const organizationAPI = {
     return data?.map(item => item.organizations).filter(Boolean) || []
   },
 
+  // 创建组织
+  async createOrganization(name: string, description: string, creatorId: string): Promise<Organization> {
+    // 1. 创建组织
+    const { data: organization, error: orgError } = await supabase
+      .from('organizations')
+      .insert({
+        name,
+        description,
+        settings: {}
+      })
+      .select()
+      .single()
+    
+    if (orgError) throw orgError
+
+    // 2. 自动将创建者设为组织管理员
+    const { error: memberError } = await supabase
+      .from('user_organizations')
+      .insert({
+        user_id: creatorId,
+        organization_id: organization.id,
+        role_in_org: 'admin',
+        joined_at: new Date().toISOString()
+      })
+    
+    if (memberError) {
+      // 如果添加成员失败，删除已创建的组织
+      await supabase.from('organizations').delete().eq('id', organization.id)
+      throw memberError
+    }
+
+    return organization
+  },
+
   // 加入组织
   async joinOrganization(userId: string, organizationId: string, role: 'admin' | 'member' = 'member') {
     const { error } = await supabase

@@ -8,9 +8,10 @@ interface OrganizationDetailProps {
   onBack: () => void
   onSelectProject: (project: Project) => void
   onViewProject?: (project: Project) => void  // 查看项目详情
+  onCreateProject?: () => void  // 跳转到创建项目
 }
 
-export function OrganizationDetail({ organization, onBack, onSelectProject, onViewProject }: OrganizationDetailProps) {
+export function OrganizationDetail({ organization, onBack, onSelectProject, onViewProject, onCreateProject }: OrganizationDetailProps) {
   const { user, signOut } = useAuth()
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
@@ -188,7 +189,10 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
             项目列表 ({projects.length})
           </h2>
           {user && (
-            <button className="btn-primary">
+            <button 
+              onClick={onCreateProject}
+              className="btn-primary"
+            >
               <Plus className="h-4 w-4 mr-2" />
               创建项目
             </button>

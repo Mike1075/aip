@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Building2, Users, Eye, Lock, ChevronRight } from 'lucide-react'
+import { Building2, Users, Eye, Lock, ChevronRight, Plus, X } from 'lucide-react'
 import { Organization, Project, organizationAPI } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -12,6 +12,12 @@ export function OrganizationList({ onSelectOrganization }: OrganizationListProps
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [orgProjects, setOrgProjects] = useState<Record<string, Project[]>>({})
   const [loading, setLoading] = useState(true)
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [formData, setFormData] = useState({
+    name: '',
+    description: ''
+  })
 
   useEffect(() => {
     loadOrganizationsAndProjects()
@@ -39,6 +45,34 @@ export function OrganizationList({ onSelectOrganization }: OrganizationListProps
     }
   }
 
+  const handleCreateOrganization = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user || !formData.name.trim()) return
+
+    setCreating(true)
+    try {
+      const newOrg = await organizationAPI.createOrganization(
+        formData.name.trim(),
+        formData.description.trim(),
+        user.id
+      )
+      
+      // 重新加载组织列表
+      await loadOrganizationsAndProjects()
+      
+      // 重置表单并关闭模态框
+      setFormData({ name: '', description: '' })
+      setShowCreateModal(false)
+      
+      alert('组织创建成功！')
+    } catch (error) {
+      console.error('创建组织失败:', error)
+      alert('创建组织失败，请重试')
+    } finally {
+      setCreating(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -50,12 +84,25 @@ export function OrganizationList({ onSelectOrganization }: OrganizationListProps
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-secondary-900 mb-2">
-          探索组织
-        </h1>
-        <p className="text-secondary-600">
-          浏览所有组织，发现感兴趣的项目并参与协作
-        </p>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex-1">
+            <h1 className="text-3xl font-bold text-secondary-900 mb-2">
+              探索组织
+            </h1>
+            <p className="text-secondary-600">
+              浏览所有组织，发现感兴趣的项目并参与协作
+            </p>
+          </div>
+          {user && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="btn-primary flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              创建组织
+            </button>
+          )}
+        </div>
       </div>
 
       {organizations.length === 0 ? (
@@ -158,6 +205,71 @@ export function OrganizationList({ onSelectOrganization }: OrganizationListProps
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* 创建组织模态框 */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-secondary-900">
+                创建新组织
+              </h3>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="p-1 hover:bg-secondary-100 rounded-lg transition-colors"
+              >
+                <X className="h-5 w-5 text-secondary-500" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateOrganization} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-secondary-700 mb-2">
+                  组织名称 *
+                </label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  className="input"
+                  placeholder="输入组织名称"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-secondary-700 mb-2">
+                  组织描述
+                </label>
+                <textarea
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="input resize-none"
+                  rows={3}
+                  placeholder="简单描述这个组织的目标和用途"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="btn-secondary flex-1"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={creating || !formData.name.trim()}
+                  className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {creating ? '创建中...' : '创建组织'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

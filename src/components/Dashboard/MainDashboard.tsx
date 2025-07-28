@@ -50,6 +50,17 @@ export function MainDashboard() {
     setSelectedProject(null)
   }
 
+  const handleGoToDashboard = () => {
+    // 跳转到用户工作台（从组织详情页）
+    if (isGuest) {
+      alert('请先登录才能创建项目')
+      return
+    }
+    setCurrentView('dashboard')
+    setSelectedOrganization(null)
+    setSelectedProject(null)
+  }
+
   const handleBackToDashboard = () => {
     // 游客用户无法访问工作台，重定向到组织列表
     if (isGuest) {
@@ -93,6 +104,7 @@ export function MainDashboard() {
             onBack={handleBackToOrganizations}
             onSelectProject={handleSelectProject}
             onViewProject={handleViewProject}
+            onCreateProject={handleGoToDashboard}
           />
         ) : null
       
