@@ -1,12 +1,28 @@
 import React, { useState } from 'react'
 import { LoginForm } from './LoginForm'
 import { RegisterForm } from './RegisterForm'
+import { EmailConfirmation } from './EmailConfirmation'
 import { Bot, Sparkles, UserX } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 
 export function AuthPage() {
   const [isLogin, setIsLogin] = useState(true)
-  const { enterAsGuest } = useAuth()
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null)
+  const { enterAsGuest, emailConfirmationRequired, clearEmailConfirmation } = useAuth()
+
+  // 如果需要邮箱验证，显示验证页面
+  if (emailConfirmationRequired || confirmationEmail) {
+    return (
+      <EmailConfirmation 
+        email={confirmationEmail || ''} 
+        onBackToLogin={() => {
+          setConfirmationEmail(null)
+          clearEmailConfirmation()
+          setIsLogin(true)
+        }}
+      />
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-50 via-white to-secondary-50 flex items-center justify-center py-12 px-4">
@@ -88,7 +104,10 @@ export function AuthPage() {
             {isLogin ? (
               <LoginForm onToggleMode={() => setIsLogin(false)} />
             ) : (
-              <RegisterForm onToggleMode={() => setIsLogin(true)} />
+              <RegisterForm 
+                onToggleMode={() => setIsLogin(true)} 
+                onEmailConfirmationRequired={(email) => setConfirmationEmail(email)}
+              />
             )}
           </div>
           

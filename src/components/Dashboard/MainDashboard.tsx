@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Building2, Users, Home, Settings, LogOut, User, Globe, Menu } from 'lucide-react'
+import { Building2, Users, Home, Settings, LogOut, User, Globe, Menu, Inbox } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Organization, Project } from '@/lib/supabase'
 import { Dashboard } from './Dashboard'
@@ -9,6 +9,7 @@ import { ProjectSettings } from './ProjectSettings'
 import { ProjectDetailPage } from './ProjectDetailPage'
 import { MyOrganizations } from './MyOrganizations'
 import { OrganizationSidebar } from './OrganizationSidebar'
+import { InteractionLog } from './InteractionLog'
 
 type ViewType = 'dashboard' | 'my-organizations' | 'explore-organizations' | 'organization-detail' | 'project-settings' | 'project-detail' | 'create-organization'
 
@@ -19,6 +20,8 @@ export function MainDashboard() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showInbox, setShowInbox] = useState(false)
+  const [isExploringOrganization, setIsExploringOrganization] = useState(false) // 标记是否是在探索模式
 
   // 导航处理函数
   const handleNavigateToMyOrganizations = () => {
@@ -45,6 +48,7 @@ export function MainDashboard() {
     setSelectedOrganization(org)
     setCurrentView('organization-detail')
     setSelectedProject(null)
+    setIsExploringOrganization(true) // 标记为探索模式
   }
 
   const handleSelectProject = (project: Project) => {
@@ -78,6 +82,7 @@ export function MainDashboard() {
     setCurrentView('explore-organizations')
     setSelectedOrganization(null)
     setSelectedProject(null)
+    setIsExploringOrganization(false) // 重置探索模式标记
   }
 
   const handleBackToOrganizationDetail = () => {
@@ -153,13 +158,14 @@ export function MainDashboard() {
             onBack={handleBackToExploreOrganizations}
             onSelectProject={handleSelectProject}
             onViewProject={handleViewProject}
-            onCreateProject={() => {
+            // 只有在非探索模式下才传递创建项目功能
+            onCreateProject={!isExploringOrganization ? () => {
               if (isGuest) {
                 alert('请先登录才能创建项目')
                 return
               }
               setCurrentView('dashboard')
-            }}
+            } : undefined}
           />
         ) : null
       
@@ -260,6 +266,17 @@ export function MainDashboard() {
             
             {/* 用户菜单 */}
             <div className="flex items-center gap-3">
+              {user && !isGuest && (
+                <button
+                  onClick={() => setShowInbox(true)}
+                  className="p-2 hover:bg-secondary-100 rounded-lg transition-colors relative"
+                  title="收件箱"
+                >
+                  <Inbox className="h-5 w-5 text-secondary-600" />
+                  {/* TODO: 添加未读数量小红点 */}
+                </button>
+              )}
+              
               {user ? (
                 <div className="relative">
                   <button
@@ -321,6 +338,11 @@ export function MainDashboard() {
         onClose={() => setSidebarOpen(false)}
         onSelectOrganization={handleSidebarOrganizationSelect}
       />
+
+      {/* 收件箱 */}
+      {showInbox && (
+        <InteractionLog onClose={() => setShowInbox(false)} />
+      )}
     </div>
   )
 }

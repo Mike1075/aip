@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Building2, Users, Eye, Lock, ChevronRight, Plus, X } from 'lucide-react'
+import { Building2, Users, Eye, Lock, ChevronRight, Plus, X, UserPlus } from 'lucide-react'
 import { Organization, Project, organizationAPI } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -12,6 +12,8 @@ export function OrganizationList({ onSelectOrganization, showCreateModal: initia
   const { user } = useAuth()
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [orgProjects, setOrgProjects] = useState<Record<string, Project[]>>({})
+  const [userOrgMembership, setUserOrgMembership] = useState<Record<string, boolean>>({})
+  const [pendingRequests, setPendingRequests] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [showCreateModal, setShowCreateModal] = useState(initialShowCreateModal)
   const [creating, setCreating] = useState(false)
@@ -29,16 +31,66 @@ export function OrganizationList({ onSelectOrganization, showCreateModal: initia
       const orgs = await organizationAPI.getAllOrganizations()
       setOrganizations(orgs)
 
-      // 为每个组织加载项目
-      const projectsData: Record<string, Project[]> = {}
-      for (const org of orgs) {
-        const projects = await organizationAPI.getOrganizationProjects(
-          org.id, 
-          user?.id
-        )
-        projectsData[org.id] = projects
+      // 优化：批量获取用户组织信息
+      let userOrganizations: Organization[] = []
+      let userPendingRequests: Record<string, boolean> = {}
+      
+      if (user) {
+        try {
+          // 一次性获取用户所属组织
+          userOrganizations = await organizationAPI.getUserOrganizations(user.id)
+          
+          // 获取用户的所有待审核申请
+          const allPendingRequests = await Promise.all(
+            orgs.map(async (org) => {
+              const userOrgIds = userOrganizations.map(uo => uo.id)
+              if (!userOrgIds.includes(org.id)) {
+                try {
+                  const pendingRequest = await organizationAPI.getUserJoinRequestStatus(user.id, org.id)
+                  return { orgId: org.id, hasPending: !!pendingRequest }
+                } catch {
+                  return { orgId: org.id, hasPending: false }
+                }
+              }
+              return { orgId: org.id, hasPending: false }
+            })
+          )
+          
+          userPendingRequests = allPendingRequests.reduce((acc, { orgId, hasPending }) => {
+            acc[orgId] = hasPending
+            return acc
+          }, {} as Record<string, boolean>)
+        } catch (error) {
+          console.error('获取用户组织信息失败:', error)
+        }
       }
+
+      // 为每个组织加载项目和设置状态
+      const projectsData: Record<string, Project[]> = {}
+      const membershipData: Record<string, boolean> = {}
+      const pendingRequestsData: Record<string, boolean> = {}
+      
+      // 并行加载所有组织的项目
+      await Promise.all(orgs.map(async (org) => {
+        try {
+          const projects = await organizationAPI.getOrganizationProjects(org.id, user?.id)
+          projectsData[org.id] = projects
+          
+          // 设置成员状态
+          const isMember = user ? userOrganizations.some(userOrg => userOrg.id === org.id) : false
+          membershipData[org.id] = isMember
+          pendingRequestsData[org.id] = user ? (userPendingRequests[org.id] || false) : false
+        } catch (error) {
+          console.error(`加载组织 ${org.id} 项目失败:`, error)
+          projectsData[org.id] = []
+          membershipData[org.id] = false
+          pendingRequestsData[org.id] = false
+        }
+      }))
+      
       setOrgProjects(projectsData)
+      setUserOrgMembership(membershipData)
+      setPendingRequests(pendingRequestsData)
     } catch (error) {
       console.error('加载组织数据失败:', error)
     } finally {
@@ -71,6 +123,29 @@ export function OrganizationList({ onSelectOrganization, showCreateModal: initia
       alert('创建组织失败，请重试')
     } finally {
       setCreating(false)
+    }
+  }
+
+
+  const handleApplyToJoinOrganization = async (organizationId: string, organizationName: string, event: React.MouseEvent) => {
+    event.stopPropagation() // 防止触发组织卡片的点击事件
+    if (!user) {
+      alert('请先登录后再申请加入组织')
+      return
+    }
+
+    const message = prompt(`请输入申请理由（可选）：`, '')
+    if (message === null) return // 用户取消了
+
+    try {
+      await organizationAPI.applyToJoinOrganization(user.id, organizationId, message)
+      alert('申请已提交，等待组织管理员审核')
+      
+      // 重新加载组织列表以更新按钮状态
+      await loadOrganizationsAndProjects()
+    } catch (error: any) {
+      console.error('❌ 申请加入组织失败:', error)
+      alert(`申请失败：${error.message || '请重试'}`)
     }
   }
 
@@ -123,6 +198,8 @@ export function OrganizationList({ onSelectOrganization, showCreateModal: initia
             const projects = orgProjects[org.id] || []
             const publicProjects = projects.filter(p => p.is_public)
             const privateProjects = projects.filter(p => !p.is_public)
+            const isMember = userOrgMembership[org.id]
+            const hasPendingRequest = pendingRequests[org.id] || false
 
             return (
               <div
@@ -135,14 +212,38 @@ export function OrganizationList({ onSelectOrganization, showCreateModal: initia
                     <Building2 className="h-6 w-6 text-primary-600" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-semibold text-secondary-900 mb-1 group-hover:text-primary-600 transition-colors">
-                      {org.name}
-                    </h3>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-semibold text-secondary-900 group-hover:text-primary-600 transition-colors">
+                        {org.name}
+                      </h3>
+                      {isMember && (
+                        <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                          已加入
+                        </span>
+                      )}
+                    </div>
                     <p className="text-sm text-secondary-600 line-clamp-2">
                       {org.description || '暂无描述'}
                     </p>
                   </div>
-                  <ChevronRight className="h-5 w-5 text-secondary-400 group-hover:text-primary-600 transition-colors" />
+                  <div className="flex items-center gap-2">
+                    {user && !isMember && (
+                      hasPendingRequest ? (
+                        <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-1 rounded-full">
+                          审核中
+                        </span>
+                      ) : (
+                        <button
+                          onClick={(e) => handleApplyToJoinOrganization(org.id, org.name, e)}
+                          className="p-2 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors group/join"
+                          title="申请加入组织"
+                        >
+                          <UserPlus className="h-4 w-4 text-primary-600 group-hover/join:text-primary-700" />
+                        </button>
+                      )
+                    )}
+                    <ChevronRight className="h-5 w-5 text-secondary-400 group-hover:text-primary-600 transition-colors" />
+                  </div>
                 </div>
 
                 <div className="space-y-3">

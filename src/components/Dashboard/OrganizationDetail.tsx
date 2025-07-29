@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { ArrowLeft, Building2, Eye, Lock, Users, Calendar, Settings, Plus, ExternalLink, Cog, UserPlus } from 'lucide-react'
-import { Organization, Project, organizationAPI, ProjectJoinRequest } from '@/lib/supabase'
+import { Organization, Project, organizationAPI, ProjectJoinRequest, OrganizationJoinRequest } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface OrganizationDetailProps {
@@ -17,6 +17,8 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
   const [loading, setLoading] = useState(true)
   const [joinRequests, setJoinRequests] = useState<{[projectId: string]: ProjectJoinRequest}>({})
   const [submittingRequest, setSubmittingRequest] = useState<{[projectId: string]: boolean}>({})
+  const [orgJoinRequests, setOrgJoinRequests] = useState<OrganizationJoinRequest[]>([])
+  const [isOrgAdmin, setIsOrgAdmin] = useState(false)
 
   useEffect(() => {
     loadProjects()
@@ -30,8 +32,20 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
       )
       setProjects(orgProjects)
       
-      // 如果用户已登录，检查每个招募中项目的申请状态
+      // 如果用户已登录，检查权限和申请状态
       if (user) {
+        // 检查是否是组织管理员
+        const userRole = await organizationAPI.getUserRoleInOrganization(user.id, organization.id)
+        const isAdmin = userRole === 'admin'
+        setIsOrgAdmin(isAdmin)
+        
+        // 如果是管理员，加载组织加入申请
+        if (isAdmin) {
+          const orgRequests = await organizationAPI.getOrganizationJoinRequests(organization.id)
+          setOrgJoinRequests(orgRequests)
+        }
+        
+        // 检查每个招募中项目的申请状态
         const requests: {[projectId: string]: ProjectJoinRequest} = {}
         for (const project of orgProjects) {
           if (project.is_recruiting) {
@@ -112,6 +126,22 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
     return !request || request.status === 'rejected'
   }
 
+  const handleReviewJoinRequest = async (requestId: string, action: 'approve' | 'reject') => {
+    if (!user) return
+    
+    try {
+      await organizationAPI.reviewJoinRequest(requestId, action, user.id)
+      alert(action === 'approve' ? '申请已批准' : '申请已拒绝')
+      
+      // 重新加载申请列表
+      const orgRequests = await organizationAPI.getOrganizationJoinRequests(organization.id)
+      setOrgJoinRequests(orgRequests)
+    } catch (error: any) {
+      console.error('审核申请失败:', error)
+      alert(`操作失败：${error.message || '请重试'}`)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* 头部导航 */}
@@ -182,13 +212,68 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
         </div>
       </div>
 
+      {/* 组织申请审核 - 只有管理员可见 */}
+      {isOrgAdmin && orgJoinRequests.length > 0 && (
+        <div className="card">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-lg font-semibold text-secondary-900">
+              加入申请 ({orgJoinRequests.length})
+            </h2>
+          </div>
+
+          <div className="space-y-4">
+            {orgJoinRequests.map((request: any) => (
+              <div key={request.id} className="border border-secondary-200 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-primary-100 rounded-lg">
+                      <UserPlus className="h-5 w-5 text-primary-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-secondary-900">
+                        {request.user?.name || '未知用户'}
+                      </h3>
+                      <p className="text-sm text-secondary-600">
+                        {request.user?.email}
+                      </p>
+                      {request.message && (
+                        <p className="text-sm text-secondary-700 mt-1">
+                          申请理由：{request.message}
+                        </p>
+                      )}
+                      <p className="text-xs text-secondary-500 mt-1">
+                        申请时间：{formatDate(request.created_at)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleReviewJoinRequest(request.id, 'approve')}
+                      className="px-3 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm"
+                    >
+                      批准
+                    </button>
+                    <button
+                      onClick={() => handleReviewJoinRequest(request.id, 'reject')}
+                      className="px-3 py-1 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors text-sm"
+                    >
+                      拒绝
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 项目列表 */}
       <div className="card">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-secondary-900">
             项目列表 ({projects.length})
           </h2>
-          {user && (
+          {user && isOrgAdmin && onCreateProject && (
             <button 
               onClick={onCreateProject}
               className="btn-primary"
@@ -210,7 +295,7 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
               暂无项目
             </h3>
             <p className="text-secondary-600">
-              {user ? '成为第一个在此组织创建项目的人' : '该组织暂时没有公开项目'}
+              {user && isOrgAdmin ? '成为第一个在此组织创建项目的人' : '该组织暂时没有公开项目'}
             </p>
           </div>
         ) : (

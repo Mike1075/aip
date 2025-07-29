@@ -26,6 +26,8 @@ export function Dashboard({ organization }: DashboardProps) {
   const [updatingDescription, setUpdatingDescription] = useState(false)
   const [showProjectDetail, setShowProjectDetail] = useState(false)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const [userProjectPermissions, setUserProjectPermissions] = useState<Record<string, 'manager' | 'member' | 'none'>>({})
+  const [isOrganizationMember, setIsOrganizationMember] = useState(false)
 
   useEffect(() => {
     if (user && organization) {
@@ -37,17 +39,36 @@ export function Dashboard({ organization }: DashboardProps) {
     if (!user || !organization) return
 
     try {
-      console.log('📊 开始加载组织工作台数据...', organization.name)
-      
       // 获取当前组织的项目（用户参与的）
-      console.log('📁 获取组织项目...')
       const projects = await organizationAPI.getOrganizationProjects(organization.id, user.id)
-      
       setProjects(projects)
-      console.log(`✅ 加载了 ${projects.length} 个项目`)
+
+      // 获取用户在各项目中的权限
+      const permissions: Record<string, 'manager' | 'member' | 'none'> = {}
+      for (const project of projects) {
+        try {
+          const role = await organizationAPI.getUserProjectRole(project.id, user.id)
+          permissions[project.id] = role || 'none'
+        } catch (error) {
+          console.error(`获取项目 ${project.id} 权限失败:`, error)
+          permissions[project.id] = 'none'
+        }
+      }
+      setUserProjectPermissions(permissions)
+
+      // 检查用户是否是该组织的成员
+      try {
+        const userOrgs = await organizationAPI.getUserOrganizations(user.id)
+        const isMember = userOrgs.some(userOrg => userOrg.id === organization.id)
+        setIsOrganizationMember(isMember)
+        console.log(`🔍 用户 ${user.id} 在组织 ${organization.name} 的成员身份: ${isMember ? '是成员' : '非成员'}`)
+        console.log('用户所属组织:', userOrgs.map(o => o.name))
+      } catch (error) {
+        console.error('检查组织成员身份失败:', error)
+        setIsOrganizationMember(false)
+      }
 
       // 暂时跳过任务加载，保持简化
-      console.log('📋 暂时跳过任务加载')
       setMyTasks([])
       
     } catch (error) {
@@ -62,12 +83,17 @@ export function Dashboard({ organization }: DashboardProps) {
   const handleCreateProject = async (projectName: string, description?: string) => {
     if (!user || !organization) return
 
+    console.log('🚀 开始创建项目调试信息:')
+    console.log('用户ID:', user.id)
+    console.log('组织ID:', organization.id)
+    console.log('组织名称:', organization.name)
+    console.log('是否组织成员:', isOrganizationMember)
+    console.log('项目名称:', projectName)
+
     setCreatingProject(true)
-    console.log('🚀 开始创建项目 (Supabase模式):', projectName, description)
     
     try {
       // 第一步：创建项目
-      console.log('📁 创建项目...')
       const { data: project, error: projectError } = await supabase
         .from('projects')
         .insert([
@@ -86,15 +112,16 @@ export function Dashboard({ organization }: DashboardProps) {
         .single()
 
       if (projectError) {
-        console.error('❌ 项目创建失败:', projectError)
+        console.error('❌ 项目创建失败，详细错误信息:', projectError)
+        console.error('错误代码:', projectError.code)
+        console.error('错误消息:', projectError.message)
+        console.error('错误详情:', projectError.details)
         throw projectError
       }
 
       console.log('✅ 项目创建成功:', project)
-      console.log('📊 项目数据详情:', JSON.stringify(project, null, 2))
 
       // 第二步：添加创建者为项目成员
-      console.log('👥 添加项目成员...')
       const { error: memberError } = await supabase
         .from('project_members')
         .insert([
@@ -106,21 +133,29 @@ export function Dashboard({ organization }: DashboardProps) {
         ])
 
       if (memberError) {
-        console.error('⚠️ 项目成员添加失败:', memberError)
+        console.error('项目成员添加失败:', memberError)
         // 不抛出错误，项目已创建成功
-      } else {
-        console.log('✅ 项目成员添加成功')
       }
 
       // 重新加载数据
-      console.log('🔄 重新加载数据...')
       await loadDashboardData()
       setShowCreateProject(false)
-      console.log('🎉 项目创建完成!')
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ 创建项目过程中出错:', error)
-      alert(`创建项目失败: ${error.message || '未知错误'}`)
+      console.error('错误类型:', typeof error)
+      console.error('错误对象:', JSON.stringify(error, null, 2))
+      
+      let errorMessage = '未知错误'
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (error?.error_description) {
+        errorMessage = error.error_description
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      alert(`创建项目失败: ${errorMessage}`)
     } finally {
       setCreatingProject(false)
     }
@@ -337,13 +372,15 @@ export function Dashboard({ organization }: DashboardProps) {
 
               {/* 快速操作按钮 */}
               <div className="flex flex-wrap gap-4 mb-8">
-                <button 
-                  onClick={() => setShowCreateProject(true)}
-                  className="btn-primary flex items-center gap-2"
-                >
-                  <Plus className="h-4 w-4" />
-                  创建项目
-                </button>
+                {isOrganizationMember && (
+                  <button 
+                    onClick={() => setShowCreateProject(true)}
+                    className="btn-primary flex items-center gap-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    创建项目
+                  </button>
+                )}
                 <button 
                   onClick={() => setShowAIChat(true)}
                   className="btn-secondary flex items-center gap-2"
@@ -351,6 +388,11 @@ export function Dashboard({ organization }: DashboardProps) {
                   <MessageSquare className="h-4 w-4" />
                   与AI对话
                 </button>
+                {!isOrganizationMember && (
+                  <div className="text-sm text-secondary-500 italic px-3 py-2 bg-secondary-50 rounded-lg">
+                    只有组织成员才能创建项目
+                  </div>
+                )}
               </div>
 
               {/* 主要内容网格 */}
@@ -364,12 +406,13 @@ export function Dashboard({ organization }: DashboardProps) {
                 <div className="xl:col-span-2">
                   <ProjectGrid 
                     projects={projects} 
-                    onCreateProject={() => setShowCreateProject(true)}
+                    onCreateProject={isOrganizationMember ? () => setShowCreateProject(true) : undefined}
                     onDeleteProject={handleDeleteProject}
                     onEditDescription={handleEditDescription}
                     onProjectClick={handleProjectClick}
                     onTogglePublic={handleTogglePublic}
                     onToggleRecruiting={handleToggleRecruiting}
+                    userProjectPermissions={userProjectPermissions}
                   />
                 </div>
               </div>

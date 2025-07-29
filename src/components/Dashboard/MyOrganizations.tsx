@@ -25,10 +25,8 @@ export function MyOrganizations({ onSelectOrganization, onCreateOrganization }: 
     if (!user) return
     
     try {
-      console.log('开始加载用户组织，用户ID:', user.id)
       // 获取用户所属的组织
       const organizations = await organizationAPI.getUserOrganizations(user.id)
-      console.log('获取到的组织列表:', organizations)
       setMyOrganizations(organizations)
 
       // 为每个组织加载项目数据

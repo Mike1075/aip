@@ -4,9 +4,10 @@ import { Mail, Lock, User, UserPlus } from 'lucide-react'
 
 interface RegisterFormProps {
   onToggleMode: () => void
+  onEmailConfirmationRequired: (email: string) => void
 }
 
-export function RegisterForm({ onToggleMode }: RegisterFormProps) {
+export function RegisterForm({ onToggleMode, onEmailConfirmationRequired }: RegisterFormProps) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -35,12 +36,15 @@ export function RegisterForm({ onToggleMode }: RegisterFormProps) {
       return
     }
 
-    const { error } = await signUp(email, password, name)
+    const { data, error } = await signUp(email, password, name)
     
     if (error) {
       setError(error.message || '注册失败，请稍后重试')
+    } else if (data?.user && !data.user.email_confirmed_at) {
+      // 需要邮箱验证
+      onEmailConfirmationRequired(email)
     } else {
-      setSuccess('注册成功！请检查您的邮箱并验证账户后登录选择组织。')
+      setSuccess('注册成功！')
     }
     
     setLoading(false)

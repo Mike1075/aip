@@ -2,11 +2,21 @@ import React from 'react'
 import { BrowserRouter as Router } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { AuthPage } from '@/components/Auth/AuthPage'
-import { OrganizationSelection } from '@/components/Auth/OrganizationSelection'
+import { EmailConfirmation } from '@/components/Auth/EmailConfirmation'
 import { MainDashboard } from '@/components/Dashboard/MainDashboard'
 
 function AppContent() {
-  const { session, user, loading, error, retry, needsOrganizationSelection, completeOrganizationSelection, isGuest } = useAuth()
+  const { session, user, loading, error, retry, isGuest, emailConfirmationRequired } = useAuth()
+  
+  // 调试信息
+  console.log('🔍 App状态:', { 
+    loading, 
+    hasSession: !!session, 
+    hasUser: !!user, 
+    isGuest, 
+    emailConfirmationRequired,
+    error 
+  })
 
   if (loading) {
     return (
@@ -33,13 +43,15 @@ function AppContent() {
     )
   }
 
-  // 如果用户已登录但需要选择组织（游客模式跳过组织选择）
-  if (session && user && needsOrganizationSelection && !isGuest) {
+  // 如果需要邮箱验证，显示验证页面
+  if (emailConfirmationRequired) {
     return (
-      <OrganizationSelection 
-        userId={user.id} 
-        onComplete={completeOrganizationSelection} 
-      />
+      <Router>
+        <EmailConfirmation 
+          email=""
+          onBackToLogin={() => {}} 
+        />
+      </Router>
     )
   }
 
