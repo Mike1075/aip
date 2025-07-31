@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { ArrowLeft, Building2, Eye, Lock, Users, Calendar, Settings, Plus, ExternalLink, Cog, UserPlus } from 'lucide-react'
 import { Organization, Project, organizationAPI, ProjectJoinRequest, OrganizationJoinRequest } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { InlineEdit } from '@/components/Common/InlineEdit'
 
 interface OrganizationDetailProps {
   organization: Organization
@@ -19,10 +20,16 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
   const [submittingRequest, setSubmittingRequest] = useState<{[projectId: string]: boolean}>({})
   const [orgJoinRequests, setOrgJoinRequests] = useState<OrganizationJoinRequest[]>([])
   const [isOrgAdmin, setIsOrgAdmin] = useState(false)
+  const [currentOrganization, setCurrentOrganization] = useState<Organization>(organization)
+  const [projectEditPermissions, setProjectEditPermissions] = useState<{[projectId: string]: boolean}>({})
 
   useEffect(() => {
     loadProjects()
   }, [organization.id, user])
+
+  useEffect(() => {
+    setCurrentOrganization(organization)
+  }, [organization])
 
   const loadProjects = async () => {
     try {
@@ -45,17 +52,30 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
           setOrgJoinRequests(orgRequests)
         }
         
-        // 检查每个招募中项目的申请状态
+        // 检查每个招募中项目的申请状态和编辑权限
         const requests: {[projectId: string]: ProjectJoinRequest} = {}
+        const editPermissions: {[projectId: string]: boolean} = {}
+        
         for (const project of orgProjects) {
+          // 检查申请状态
           if (project.is_recruiting) {
             const request = await organizationAPI.hasJoinRequest(project.id, user.id)
             if (request) {
               requests[project.id] = request
             }
           }
+          
+          // 检查编辑权限
+          try {
+            const userRole = await organizationAPI.getUserProjectRole(project.id, user.id)
+            editPermissions[project.id] = userRole === 'manager'
+          } catch {
+            editPermissions[project.id] = false
+          }
         }
+        
         setJoinRequests(requests)
+        setProjectEditPermissions(editPermissions)
       }
     } catch (error) {
       console.error('加载项目失败:', error)
@@ -63,6 +83,33 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
       setLoading(false)
     }
   }
+
+  const handleUpdateOrganizationName = async (newName: string) => {
+    if (!user) throw new Error('用户未登录')
+    
+    await organizationAPI.updateOrganizationName(organization.id, newName, user.id)
+    
+    // 更新本地状态
+    setCurrentOrganization(prev => ({
+      ...prev,
+      name: newName
+    }))
+  }
+
+  const handleUpdateProjectName = async (projectId: string, newName: string) => {
+    if (!user) throw new Error('用户未登录')
+    
+    await organizationAPI.updateProjectName(projectId, newName, user.id)
+    
+    // 更新本地项目列表状态
+    setProjects(prev => prev.map(project => 
+      project.id === projectId 
+        ? { ...project, name: newName }
+        : project
+    ))
+  }
+
+
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('zh-CN')
@@ -158,10 +205,17 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
           </div>
           <div>
             <h1 className="text-2xl font-bold text-secondary-900">
-              {organization.name}
+              <InlineEdit
+                value={currentOrganization.name}
+                onSave={handleUpdateOrganizationName}
+                canEdit={isOrgAdmin}
+                className="text-2xl font-bold text-secondary-900"
+                placeholder="组织名称"
+                maxLength={50}
+              />
             </h1>
             <p className="text-secondary-600">
-              {organization.description || '暂无描述'}
+              {currentOrganization.description || '暂无描述'}
             </p>
           </div>
         </div>
@@ -322,7 +376,14 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
                 </div>
 
                 <h3 className="font-semibold text-secondary-900 mb-2">
-                  {project.name}
+                  <InlineEdit
+                    value={project.name}
+                    onSave={(newName) => handleUpdateProjectName(project.id, newName)}
+                    canEdit={projectEditPermissions[project.id] || false}
+                    className="font-semibold text-secondary-900"
+                    placeholder="项目名称"
+                    maxLength={50}
+                  />
                 </h3>
                 
                 <p className="text-sm text-secondary-600 line-clamp-2 mb-4">

@@ -227,7 +227,15 @@ export function MainDashboard() {
                 </button>
               )}
               
-              <div className="flex items-center gap-3">
+              <div 
+                className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => {
+                  setCurrentView(isGuest ? 'explore-organizations' : 'my-organizations')
+                  setSelectedOrganization(null)
+                  setSelectedProject(null)
+                  setIsExploringOrganization(false)
+                }}
+              >
                 <div className="p-2 bg-gradient-to-r from-primary-500 to-primary-600 rounded-xl shadow-lg">
                   <Building2 className="h-6 w-6 text-white" />
                 </div>

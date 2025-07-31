@@ -121,7 +121,16 @@ export function Dashboard({ organization }: DashboardProps) {
 
       console.log('✅ 项目创建成功:', project)
 
-      // 第二步：添加创建者为项目成员
+      // 第二步：为项目创建智慧库文档
+      try {
+        await organizationAPI.createKnowledgeBaseForNewProject(project.id, user.id)
+        console.log('✅ 项目智慧库文档创建成功')
+      } catch (docError) {
+        console.error('⚠️ 创建智慧库文档失败，但项目创建成功:', docError)
+        // 不阻止项目创建流程
+      }
+
+      // 第三步：添加创建者为项目成员
       const { error: memberError } = await supabase
         .from('project_members')
         .insert([

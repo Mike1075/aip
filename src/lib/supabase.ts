@@ -124,6 +124,19 @@ export interface OrganizationJoinRequest {
   reviewed_by?: string
 }
 
+// 项目文档表
+export interface Document {
+  id: string
+  title: string
+  content: string
+  metadata: Record<string, any>
+  embedding: string // public.vector(1536)
+  project_id: string
+  user_id: string
+  created_at: string
+  updated_at: string
+}
+
 // 组织管理API
 export const organizationAPI = {
   // 获取所有组织（公开访问）
@@ -858,6 +871,86 @@ export const organizationAPI = {
     if (requestsError) console.error('申请查询错误:', requestsError)
     
     console.log('🔍 === 数据库状态调试结束 ===')
+  },
+
+  // 更新组织名称
+  async updateOrganizationName(organizationId: string, newName: string, userId: string): Promise<void> {
+    console.log('🔧 更新组织名称:', { organizationId, newName, userId })
+    
+    // 检查用户是否为组织管理员
+    const userRole = await this.getUserRoleInOrganization(userId, organizationId)
+    if (userRole !== 'admin') {
+      throw new Error('只有组织管理员可以修改组织名称')
+    }
+    
+    const { error } = await supabase
+      .from('organizations')
+      .update({ name: newName })
+      .eq('id', organizationId)
+    
+    if (error) {
+      console.error('❌ 更新组织名称失败:', error)
+      throw error
+    }
+    
+    console.log('✅ 组织名称更新成功')
+  },
+
+  // 更新项目名称
+  async updateProjectName(projectId: string, newName: string, userId: string): Promise<void> {
+    console.log('🔧 更新项目名称:', { projectId, newName, userId })
+    
+    // 检查用户是否为项目管理员
+    const userRole = await this.getUserProjectRole(projectId, userId)
+    if (userRole !== 'manager') {
+      throw new Error('只有项目管理员可以修改项目名称')
+    }
+    
+    const { error } = await supabase
+      .from('projects')
+      .update({ name: newName })
+      .eq('id', projectId)
+    
+    if (error) {
+      console.error('❌ 更新项目名称失败:', error)
+      throw error
+    }
+    
+    console.log('✅ 项目名称更新成功')
+  },
+
+  // 为新项目创建智慧库文档
+  async createKnowledgeBaseForNewProject(projectId: string, userId: string): Promise<void> {
+    console.log('📚 为新项目创建智慧库文档:', { projectId, userId })
+    
+    const { error } = await supabase
+      .from('documents')
+      .insert({
+        project_id: projectId,
+        user_id: userId,
+        title: '项目智慧库',
+        content: '', // 改为空字符串而不是 null
+        metadata: {},
+        embedding: null
+      })
+    
+    if (error) {
+      console.error('❌ 创建智慧库文档失败:', error)
+      throw error
+    }
+    
+    console.log('✅ 智慧库文档创建成功')
+  },
+
+  // 测试函数：手动创建智慧库文档
+  async testCreateKnowledgeBase(projectId: string, userId: string): Promise<void> {
+    console.log('🧪 测试创建智慧库文档')
+    try {
+      await this.createKnowledgeBaseForNewProject(projectId, userId)
+      console.log('🎉 测试成功！')
+    } catch (error) {
+      console.error('💥 测试失败:', error)
+    }
   },
 
   // 删除组织（仅创建者可删除）
