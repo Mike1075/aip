@@ -130,8 +130,8 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
 
       if (error) throw error
 
-      setTasks(prev => prev.map(task => 
-        task.id === taskId ? { ...task, status: newStatus } : task
+      setTasks(prev => prev.map(task =>
+        task.id === taskId ? { ...task, status: newStatus as Task['status'] } : task
       ))
     } catch (error) {
       console.error('更新任务状态失败:', error)
@@ -208,8 +208,8 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
 
       if (error) throw error
 
-      setTasks(prev => prev.map(t => 
-        t.id === taskId ? { ...t, assignee_id: assigneeValue } : t
+      setTasks(prev => prev.map(t =>
+        t.id === taskId ? { ...t, assignee_id: assigneeValue || undefined } : t
       ))
     } catch (error) {
       console.error('分配任务失败:', error)

@@ -1,0 +1,739 @@
+{
+  "name": "aip chat to Q&A",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Please follow your system message",
+        "options": {
+          "systemMessage": "=你是一个聊天总结助手，你擅长筛选出价值的对话.\n\n\n## 执行步骤：\n1. 必须首先调用工具\"Get many rows in Supabase\"回顾聊天历史，了解对话背景和上下文\n2. 等待检索结果\n3. 筛选出有价值的对话。\n## 重要：\n·请你深刻地理解对话的时间线，结合上下文推理出用户是得到了什么答案，是如何解决问题的，而这些文本可能不藏在字里行间，而需要一定程度的推理。\n·所谓的有价值的对话是指对应的技术问题有对应的技术答案，或者用户提供的某种最新的信息情报，也包括时间人物地点相关的，任务进度相关的。对于不像是有答案结果的对话就跳过。"
+        }
+      },
+      "id": "de34c41a-f35c-4a75-bf36-77b6f392959e",
+      "name": "RAG AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        608,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "cbcb889d-8bce-463a-87ce-3d2dc5008671",
+      "name": "Embeddings OpenAI1",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1,
+      "position": [
+        768,
+        960
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "yXdyERD64wM6mFi1",
+          "name": "OpenAi account Ethan"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        592,
+        272
+      ],
+      "id": "f1ef672b-b173-45ce-82d7-4de5f0965a4d",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "hXeOePHRHihXfSwF",
+          "name": "Google Gemini(PaLM) Api account zfx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "aip",
+        "toolDescription": "Retreive the project_id in the documents to support question answering.",
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "filter",
+                "value": "=$('Edit Fields').item.json.project_id"
+              }
+            ]
+          }
+        }
+      },
+      "id": "2d3bf3a5-ae2e-468a-9c49-fd3352acad5d",
+      "name": "Supabase Vector Search",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1,
+      "position": [
+        752,
+        816
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase aip"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "chat_history",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Edit Fields').item.json.user_id }}"
+            },
+            {
+              "keyName": "created_at",
+              "condition": "gte",
+              "keyValue": "={{ $now.startOf('day').toISO() }}"
+            },
+            {
+              "keyName": "created_at",
+              "condition": "lt",
+              "keyValue": "={{ $now.plus({days: 1}).startOf('day').toISO() }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        832,
+        272
+      ],
+      "id": "3cd2d4f2-89f2-411b-a59d-5a6bd1195329",
+      "name": "Get many rows in Supabase",
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase aip"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        192,
+        -336
+      ],
+      "id": "ca8e0650-118c-4152-b300-6b3d245e07ae",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "jsCode": "const content = items[0].json.output;\nconst parts = content.split('---').filter(p => p.trim());\n\nconst qaPairs = [];\n\nparts.forEach(part => {\n  const trimmed = part.trim();\n  const lines = trimmed.split('\\n');\n  \n  let question = '';\n  let answer = '';\n  \n  for (let line of lines) {\n    if (line.startsWith('Q') && line.includes(':')) {\n      question = line.substring(line.indexOf(':') + 1).trim();\n    } else if (line.startsWith('A') && line.includes(':')) {\n      answer = line.substring(line.indexOf(':') + 1).trim();\n    }\n  }\n  \n  if (question && answer) {\n    qaPairs.push({\n      // 按照documents表结构输出\n      title: `Q&A`,\n      content: `Q: ${question}\\n\\nA: ${answer}`,\n      metadata: {\n        type: \"auto_qa\",\n        source: \"chat_summary\", \n        question_preview: question.substring(0, 100),\n        generated_at: new Date().toISOString()\n      },\n      embedding: null, // 暂时为空，后续可以生成\n      project_id: \"990ea8e2-2562-4fea-ba0b-0b6695efc605\",\n      user_id: $('Edit Fields').first().json.user_id, \n      created_at: new Date().toISOString(),\n      updated_at: new Date().toISOString()\n    });\n  }\n});\n\nreturn qaPairs.map(qa => ({ json: qa }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        0
+      ],
+      "id": "d4c77a86-74bf-4e76-80a4-8b98ca489760",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"project_id\": \"990ea8e2-2562-4fea-ba0b-0b6695efc605\",\n  \"user_id\": \"2783930b-6a0a-45b2-a515-41ec5c040b68\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        368,
+        -336
+      ],
+      "id": "19371590-8a3e-401f-8549-a3519ee48e58",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Please follow your system message",
+        "options": {
+          "systemMessage": "=你是一个聊天总结助手，你擅长从上文多条总结中再总结出多条Q&A格式的问答，你总结的语言清晰简练，你擅长说人话。\n\n## 执行步骤：\n1. 从output中总结有多少条结论。有多少条结论就整理成多少条Q&A问答；\n2. 提问方式必须要像人话那样，格式如下（必须包含分割符---）：\n\nQ1: 用户问题1\nA1: 对应答案1\n\n---\n\nQ2: 用户问题2  \nA2: 对应答案2\n\n---\n\n只输出Q&A，不要其他解释文字,也不需要“好的，明白”这类的开场白。\n\n上文内容：\n{{ $json.output }}"
+        }
+      },
+      "id": "a39cbf9c-d059-40ec-9f2e-20a8c1d8f74d",
+      "name": "RAG AI Agent1",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        1040,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1040,
+        240
+      ],
+      "id": "d66cb3e9-e88e-4090-b538-cbe037e395b7",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "hXeOePHRHihXfSwF",
+          "name": "Google Gemini(PaLM) Api account zfx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "useCustomSchema": true,
+        "tableId": "documents",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "title",
+              "fieldValue": "={{ $json.title }}"
+            },
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ $json.content }}"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{ $json.metadata }}"
+            },
+            {
+              "fieldId": "project_id",
+              "fieldValue": "={{ $json.project_id }}"
+            },
+            {
+              "fieldId": "user_id",
+              "fieldValue": "={{ $json.user_id }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ $json.created_at }}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $json.updated_at }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        0
+      ],
+      "id": "8021ae42-afc4-432d-9899-9f981a76c60a",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase aip"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "Follow the system message.",
+        "options": {
+          "systemMessage": "=请按照以下步骤执行:\n1，把上文的内逐行添加到supabase的documents里。\n2，把上文的请你检索数据库然后删除重复的，相似的，落后的资讯，只保留最新的那一条。\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        2016,
+        -16
+      ],
+      "id": "ee744b9c-60fa-4c19-8779-f7dbe738feb4",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        2016,
+        240
+      ],
+      "id": "c824b4bb-2897-46dd-8ab8-93282176580e",
+      "name": "Google Gemini Chat Model2",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "hXeOePHRHihXfSwF",
+          "name": "Google Gemini(PaLM) Api account zfx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "tableId": "documents",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "title",
+              "fieldValue": "={{ \"Q&A: \" + $json.question.substring(0, 50) + \"...\" }}"
+            },
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ \"Q: \" + $json.question + \"\\n\\nA: \" + $json.answer }}"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{ {\"type\": \"auto_qa\", \"source\": \"chat_summary\", \"generated_at\": $now} }}"
+            },
+            {
+              "fieldId": "project_id",
+              "fieldValue": "={{ $json.project_id }}"
+            },
+            {
+              "fieldId": "user_id",
+              "fieldValue": "={{ $('Edit Fields').item.json.user_id }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ $now }}"
+            },
+            {
+              "fieldId": "updated_at",
+              "fieldValue": "={{ $now }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        2368,
+        288
+      ],
+      "id": "b6c513a9-05b2-4f1f-83d9-7deb63cdbb8f",
+      "name": "Create a row in Supabase",
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase aip"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "tableId": "documents",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "project_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.project_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        2528,
+        208
+      ],
+      "id": "5ebab8c0-d4dd-45b7-8734-665166dd96a7",
+      "name": "Delete a row in Supabase",
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase aip"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "=你是重复内容检测专家。\n\n当前要插入的Q&A：\n问题：{{ $json.question }}\n答案：{{ $json.answer }}\n\n请检索项目{{ $json.project_id }}的现有documents，判断：\n1. 是否已存在相同或相似的问题？\n2. 是否有过时的信息需要删除？\n\n如果发现重复或过时内容，请返回：\nDELETE: [要删除的document的id列表]\n\n如果没有重复，返回：\nINSERT: OK",
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "topK": 10,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [
+        2784,
+        208
+      ],
+      "id": "c3ac1b69-f47e-4b5f-8679-7f81f5e934b2",
+      "name": "Supabase Vector Store",
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase aip"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        2704,
+        400
+      ],
+      "id": "40233e20-62d4-4890-981c-af583503c649",
+      "name": "Embeddings OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "yXdyERD64wM6mFi1",
+          "name": "OpenAi account Ethan"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "1afe3c51-e81d-477b-b3e6-0686bc772534",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -192,
+        0
+      ],
+      "id": "2b2feb15-def8-44dd-af08-462ebaed9b7a",
+      "name": "Webhook",
+      "webhookId": "1afe3c51-e81d-477b-b3e6-0686bc772534"
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "tableName",
+              "value": "={{ 'documents_' + $json[\"body\"][\"project_id\"] }}"
+            },
+            {
+              "name": "chatInput",
+              "value": "={{ $json[\"body\"][\"chatInput\"] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d384ee05-9d0a-42c8-a8cd-803fe3b32e01",
+      "name": "Set Table Name1",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [
+        -32,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        288,
+        0
+      ],
+      "id": "fbb6cafb-98d8-4c01-95d1-b5ed40dd2de8",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "body.project_id, body.chatInput, body.user_id",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        128,
+        0
+      ],
+      "id": "94d62c25-fe32-4b6f-900a-6ca500b1b405",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 获取聊天历史\nconst chatHistory = items[0]?.json || [];\n\n// 获取前面传递的用户输入数据（从Aggregate节点）\nconst userData = $('Aggregate').first().json;\n\n// 先打印看看数据结构\nconsole.log('userData:', userData);\nconsole.log('userData.data[0]:', userData.data[0]);\n\n// 处理聊天历史\nlet formattedHistory = '';\nif (Array.isArray(chatHistory) && chatHistory.length > 0) {\n  formattedHistory = chatHistory\n    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))\n    .slice(0, 20)\n    .reverse()\n    .map(chat => `用户: ${chat.user_message}\\nAI: ${chat.ai_response}`)\n    .join('\\n---\\n');\n}\n\n// 返回数据，确保包含所有需要的字段\nreturn [{\n  json: {\n    data: userData.data,\n    chatHistory: formattedHistory,\n    // 先确认字段是否存在\n    user_id: userData.data[0]['body.user_id'] || 'not_found',\n    project_id: userData.data[0]['body.project_id'] || 'not_found',\n    chatInput: userData.data[0]['body.chatInput'] || 'not_found'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "ee38c34f-a2aa-42d5-b7ae-e331e3128f5f",
+      "name": "Code"
+    }
+  ],
+  "pinData": {
+    "RAG AI Agent": [
+      {
+        "json": {
+          "output": "好的，我已经回顾了聊天历史并筛选出以下有价值的对话摘要：\n\n### **技术问答**\n\n*   **问题**: 在使用n8n时，遇到 “parameter problem” (参数问题) 或 “bad request” (错误请求) 的报错。\n*   **解决方案**: 用户最终发现这**不是工作流节点配置问题，而是网络问题**。用户还补充说，n8n的工作流有时不稳定，同样的代码，有时能成功运行，有时会失败。\n\n### **人物与事实信息**\n\n*   **Ethan**:\n    *   他正在和“兔子老师”一起开发一个名为“**电子衣橱**”的项目。\n    *   他的新车是**蓝色**的劳斯莱斯（此信息曾被更新）。\n*   **Mike**:\n    *   在AI项目中，他的身份是**老师**和**灵性导师**。\n    *   他主要负责演讲、课程讲解（如AI应用、商业机会）和主持。\n*   **正方形**:\n    *   一位AI课程的老师，负责AI游戏、PPT生成和营销内容等模块。\n    *   他最喜欢的颜色是**红色**，裤子也是**红色**的（此信息曾被更新）。\n*   **兔子老师**:\n    *   有一件**白色**的新衣服。\n    *   正在和“Ethan”一起开发“**电子衣橱**”项目。\n*   **珍**:\n    *   她像“豪猪”一样竖起“刺”来保护自己，这是一种源于童年对母亲和权威的深层恐惧而形成的自我保护机制。\n\n### **项目与任务进度**\n\n1.  **“心灵绿洲”教育平台项目**:\n    *   **开发计划**: 制定了一个从MVP（最小可行产品）开始的分阶段开发计划。\n    *   **MVP核心功能**: 包括用户系统和AI生成的基础个人认知报告。\n    *   **上线时间**: MVP计划于**2025年9月1日**上线。\n    *   **进度规划**: 已为该MVP制定了从2025年7月30日到9月1日的详细五周开发与上线冲刺计划。\n\n2.  **“爱学AI创富营”学员任务**:\n    *   **核心任务**: 需要完成10个商业项目，并打造个人IP。\n    *   **具体指标**: 其中一个项目用户需过千，总收入需超过2000元。\n    *   **当前任务**: 学习关于YouTube运营的课程。"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Embeddings OpenAI1": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Search",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Vector Search": {
+      "ai_vectorStore": [
+        []
+      ],
+      "ai_tool": [
+        []
+      ]
+    },
+    "RAG AI Agent": {
+      "main": [
+        [
+          {
+            "node": "RAG AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows in Supabase": {
+      "ai_tool": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        []
+      ]
+    },
+    "RAG AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "RAG AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row in Supabase": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Delete a row in Supabase": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supabase Vector Store": {
+      "ai_tool": [
+        []
+      ]
+    },
+    "Embeddings OpenAI": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Supabase Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Set Table Name1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "RAG AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Table Name1": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "5090ab45-60cf-4b89-83cf-7b5ad18d86be",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1f778c37f32963d7908a07cd31451cf3b9dce1062b27726239599616e02e8a30"
+  },
+  "id": "TaRgEx5vHDdn9c11",
+  "tags": []
+}

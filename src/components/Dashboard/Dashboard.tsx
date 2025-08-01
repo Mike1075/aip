@@ -31,6 +31,8 @@ export function Dashboard({ organization }: DashboardProps) {
 
   useEffect(() => {
     if (user && organization) {
+      // 组件加载完成，设置loading为false
+      setLoading(false)
       loadDashboardData()
     }
   }, [user, organization])
@@ -48,7 +50,14 @@ export function Dashboard({ organization }: DashboardProps) {
       for (const project of projects) {
         try {
           const role = await organizationAPI.getUserProjectRole(project.id, user.id)
-          permissions[project.id] = role || 'none'
+          // 将项目角色映射到权限类型
+          if (role === 'manager') {
+            permissions[project.id] = 'manager'
+          } else if (role === 'developer' || role === 'tester' || role === 'designer') {
+            permissions[project.id] = 'member'
+          } else {
+            permissions[project.id] = 'none'
+          }
         } catch (error) {
           console.error(`获取项目 ${project.id} 权限失败:`, error)
           permissions[project.id] = 'none'

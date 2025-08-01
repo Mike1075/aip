@@ -409,6 +409,39 @@ export const getProjectDocuments = async (projectId: string): Promise<ProjectDoc
   }
 }
 
+// 删除文档（按标题删除所有相同标题的文档）
+export const deleteDocumentsByTitle = async (
+  projectId: string,
+  title: string
+): Promise<void> => {
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabase = createClient(
+      import.meta.env.VITE_SUPABASE_URL,
+      import.meta.env.VITE_SUPABASE_ANON_KEY
+    )
+
+    console.log('🗑️ 删除文档...', { projectId, title })
+
+    // 删除指定项目中指定标题的所有文档
+    const { error } = await supabase
+      .from('documents')
+      .delete()
+      .eq('project_id', projectId)
+      .eq('title', title)
+
+    if (error) {
+      console.error('❌ 删除文档失败:', error)
+      throw new Error(`删除文档失败: ${error.message}`)
+    }
+
+    console.log('✅ 文档删除成功')
+  } catch (error) {
+    console.error('❌ 删除文档异常:', error)
+    throw error
+  }
+}
+
 // 保存文档记录到数据库（使用现有的documents表）
 const saveDocumentRecord = async (
   file: File,

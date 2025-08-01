@@ -4,6 +4,10 @@ import { AuthProvider, useAuth } from '@/contexts/AuthContext'
 import { AuthPage } from '@/components/Auth/AuthPage'
 import { EmailConfirmation } from '@/components/Auth/EmailConfirmation'
 import { MainDashboard } from '@/components/Dashboard/MainDashboard'
+import { RoutedMainDashboard } from '@/components/Dashboard/RoutedMainDashboard'
+
+// 路由系统开关 - 设置为 true 启用新的路由系统，false 使用原有系统
+const USE_ROUTER = true
 
 function AppContent() {
   const { session, user, loading, error, retry, isGuest, emailConfirmationRequired } = useAuth()
@@ -57,7 +61,11 @@ function AppContent() {
 
   return (
     <Router>
-      {(session || isGuest) ? <MainDashboard /> : <AuthPage />}
+      {(session || isGuest) ? (
+        USE_ROUTER ? <RoutedMainDashboard /> : <MainDashboard />
+      ) : (
+        <AuthPage />
+      )}
     </Router>
   )
 }

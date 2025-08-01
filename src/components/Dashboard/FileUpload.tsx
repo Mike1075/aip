@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from 'react'
-import { Upload, File, X, CheckCircle, AlertCircle, Clock, FileText } from 'lucide-react'
-import { uploadDocumentToN8n, getProjectDocuments, ProjectDocument } from '../../lib/n8n'
+import { Upload, File, X, CheckCircle, AlertCircle, Clock, FileText, Trash2 } from 'lucide-react'
+import { uploadDocumentToN8n, getProjectDocuments, ProjectDocument, deleteDocumentsByTitle } from '../../lib/n8n'
+import { organizationAPI } from '../../lib/supabase'
 
 interface FileUploadProps {
   projectId: string
@@ -23,17 +24,45 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
   const [isDragging, setIsDragging] = useState(false)
   const [existingDocuments, setExistingDocuments] = useState<ProjectDocument[]>([])
   const [loadingDocuments, setLoadingDocuments] = useState(true)
+  const [userRole, setUserRole] = useState<'manager' | 'developer' | 'tester' | 'designer' | null>(null)
+  const [deletingTitle, setDeletingTitle] = useState<string | null>(null)
 
-  // 加载项目历史文档
+  // 加载项目历史文档和用户角色
   useEffect(() => {
     loadExistingDocuments()
-  }, [projectId])
+    loadUserRole()
+  }, [projectId, userId])
+
+  const loadUserRole = async () => {
+    try {
+      const role = await organizationAPI.getUserProjectRole(projectId, userId)
+      setUserRole(role)
+    } catch (error) {
+      console.error('获取用户角色失败:', error)
+    }
+  }
 
   const loadExistingDocuments = async () => {
     try {
       setLoadingDocuments(true)
       const documents = await getProjectDocuments(projectId)
-      setExistingDocuments(documents)
+      
+      // 对文档按title去重，保留最新的版本
+      const uniqueDocuments = documents.reduce((acc: ProjectDocument[], current) => {
+        const existingDoc = acc.find(doc => doc.title === current.title)
+        if (!existingDoc) {
+          acc.push(current)
+        } else {
+          // 如果已存在相同title，保留创建时间更晚的
+          if (new Date(current.created_at) > new Date(existingDoc.created_at)) {
+            const index = acc.findIndex(doc => doc.title === current.title)
+            acc[index] = current
+          }
+        }
+        return acc
+      }, [])
+      
+      setExistingDocuments(uniqueDocuments)
     } catch (error) {
       console.error('加载历史文档失败:', error)
     } finally {
@@ -150,9 +179,72 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
   }
 
   const updateFileTitle = (id: string, newTitle: string) => {
+    // 防止用户输入"项目智慧库"
+    if (newTitle.trim() === '项目智慧库') {
+      alert('不能使用"项目智慧库"作为文档名称，这是系统保留名称。')
+      return
+    }
+    
     setUploadFiles(prev => prev.map(f => 
       f.id === id ? { ...f, title: newTitle } : f
     ))
+  }
+
+  // 删除文档功能
+  const handleDeleteDocument = async (title: string, createdBy: string) => {
+    // 检查权限：创建者可以删除自己的文档，项目经理可以删除所有文档
+    const canDelete = userRole === 'manager' || createdBy === userId
+    
+    if (!canDelete) {
+      alert('您没有权限删除此文档')
+      return
+    }
+
+    // 防止删除项目智慧库
+    if (title === '项目智慧库') {
+      alert('项目智慧库不能被删除')
+      return
+    }
+
+    if (!confirm(`确定要删除所有名为"${title}"的文档吗？此操作不可撤销。`)) {
+      return
+    }
+
+    try {
+      setDeletingTitle(title)
+      
+      // 如果不是项目经理，需要额外的权限检查
+      if (userRole !== 'manager') {
+        // 获取所有同名文档，检查是否都是当前用户创建的
+        const allDocs = await getProjectDocuments(projectId)
+        const sameTitleDocs = allDocs.filter(doc => doc.title === title)
+        const hasOthersDoc = sameTitleDocs.some(doc => doc.user_id !== userId)
+        
+        if (hasOthersDoc) {
+          alert('您只能删除自己创建的文档，但存在其他用户创建的同名文档')
+          setDeletingTitle(null)
+          return
+        }
+      }
+      
+      await deleteDocumentsByTitle(projectId, title)
+      
+      // 重新加载文档列表
+      await loadExistingDocuments()
+      
+      alert('文档删除成功')
+    } catch (error) {
+      console.error('删除文档失败:', error)
+      alert('删除文档失败: ' + (error instanceof Error ? error.message : '未知错误'))
+    } finally {
+      setDeletingTitle(null)
+    }
+  }
+
+  // 检查用户是否可以删除文档
+  const canDeleteDocument = (title: string, createdBy: string) => {
+    if (title === '项目智慧库') return false
+    return userRole === 'manager' || createdBy === userId
   }
 
   const onDragOver = (e: React.DragEvent) => {
@@ -241,6 +333,22 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
                         <span>{new Date(doc.created_at).toLocaleDateString()}</span>
                       </div>
                     </div>
+                    
+                    {/* 删除按钮 - 只有有权限的用户才能看到 */}
+                    {canDeleteDocument(doc.title, doc.user_id) && (
+                      <button
+                        onClick={() => handleDeleteDocument(doc.title, doc.user_id)}
+                        disabled={deletingTitle === doc.title}
+                        className="p-1 hover:bg-red-50 rounded text-red-400 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title={userRole === 'manager' ? '删除文档' : '删除我的文档'}
+                      >
+                        {deletingTitle === doc.title ? (
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-400" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

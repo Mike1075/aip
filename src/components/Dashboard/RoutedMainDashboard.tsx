@@ -1,213 +1,89 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { Routes, Route, useParams, useNavigate } from 'react-router-dom'
 import { Building2, Users, Home, Settings, LogOut, User, Globe, Menu, Inbox } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { Organization, Project } from '@/lib/supabase'
-import { Dashboard } from './Dashboard'
-import { OrganizationList } from './OrganizationList'
-import { OrganizationDetail } from './OrganizationDetail'
-import { ProjectSettings } from './ProjectSettings'
-import { ProjectDetailPage } from './ProjectDetailPage'
-import { MyOrganizations } from './MyOrganizations'
+import { Organization, Project, organizationAPI } from '@/lib/supabase'
 import { OrganizationSidebar } from './OrganizationSidebar'
 import { InteractionLog } from './InteractionLog'
 import { useUnreadMessages } from '@/hooks/use-unread-messages'
+import { useAppNavigation } from '@/hooks/use-app-navigation'
 
-type ViewType = 'dashboard' | 'my-organizations' | 'explore-organizations' | 'organization-detail' | 'project-settings' | 'project-detail' | 'create-organization'
+// 导入页面组件
+import { MyOrganizationsPage } from '@/pages/MyOrganizationsPage'
+import { ExploreOrganizationsPage } from '@/pages/ExploreOrganizationsPage'
+import { OrganizationDetailPage } from '@/pages/OrganizationDetailPage'
+import { OrganizationDashboardPage } from '@/pages/OrganizationDashboardPage'
+import { ProjectDetailPage } from '@/pages/ProjectDetailPage'
+import { ProjectSettingsPage } from '@/pages/ProjectSettingsPage'
 
-export function MainDashboard() {
+export function RoutedMainDashboard() {
   const { user, signOut, isGuest } = useAuth()
-  const [currentView, setCurrentView] = useState<ViewType>(isGuest ? 'explore-organizations' : 'my-organizations')
-  const [selectedOrganization, setSelectedOrganization] = useState<Organization | null>(null)
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const { currentView, organizationId, projectId } = useAppNavigation()
+  const navigate = useNavigate()
+  
+  // UI 状态
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showInbox, setShowInbox] = useState(false)
-  const [isExploringOrganization, setIsExploringOrganization] = useState(false) // 标记是否是在探索模式
   const { unreadCount, refreshUnreadCount } = useUnreadMessages()
 
-  // 导航处理函数
-  const handleNavigateToMyOrganizations = () => {
-    setCurrentView('my-organizations')
-    setSelectedOrganization(null)
-    setSelectedProject(null)
-  }
+  // 数据状态
+  const [selectedOrganization, setSelectedOrganization] = useState<Organization | null>(null)
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
+  const [loading, setLoading] = useState(false)
 
-  const handleNavigateToExploreOrganizations = () => {
-    setCurrentView('explore-organizations')
-    setSelectedOrganization(null)
-    setSelectedProject(null)
-  }
+  // 根据 URL 参数加载数据
+  useEffect(() => {
+    const loadData = async () => {
+      if (organizationId && organizationId !== selectedOrganization?.id) {
+        setLoading(true)
+        try {
+          const org = await organizationAPI.getOrganizationById(organizationId)
+          setSelectedOrganization(org)
+        } catch (error) {
+          console.error('加载组织失败:', error)
+          navigate('/explore-organizations')
+        } finally {
+          setLoading(false)
+        }
+      }
 
-  const handleSelectOrganizationForWorkspace = (org: Organization) => {
-    // 从"我的组织"选择组织进入工作台
-    setSelectedOrganization(org)
-    setCurrentView('dashboard')
-    setSelectedProject(null)
-  }
+      if (projectId && organizationId && projectId !== selectedProject?.id) {
+        setLoading(true)
+        try {
+          const project = await organizationAPI.getProjectById(projectId)
+          setSelectedProject(project)
+        } catch (error) {
+          console.error('加载项目失败:', error)
+          if (selectedOrganization) {
+            navigate(`/organizations/${selectedOrganization.id}`)
+          }
+        } finally {
+          setLoading(false)
+        }
+      }
+    }
 
-  const handleSelectOrganizationForExplore = (org: Organization) => {
-    // 从"探索组织"进入组织详情
-    setSelectedOrganization(org)
-    setCurrentView('organization-detail')
-    setSelectedProject(null)
-    setIsExploringOrganization(true) // 标记为探索模式
-  }
-
-  const handleSelectProject = (project: Project) => {
-    setSelectedProject(project)
-    setCurrentView('project-settings')
-  }
-
-  const handleViewProject = (project: Project) => {
-    setSelectedProject(project)
-    setCurrentView('project-detail')
-  }
-
-  const handleCreateOrganization = () => {
-    setCurrentView('create-organization')
-  }
+    loadData()
+  }, [organizationId, projectId, navigate])
 
   const handleSidebarOrganizationSelect = (org: Organization) => {
-    setSelectedOrganization(org)
-    setCurrentView('dashboard')
-    setSelectedProject(null)
+    navigate(`/organizations/${org.id}/dashboard`)
     setSidebarOpen(false)
   }
 
-  const handleBackToMyOrganizations = () => {
-    setCurrentView('my-organizations')
+  const handleLogoClick = () => {
+    navigate(isGuest ? '/explore-organizations' : '/my-organizations')
     setSelectedOrganization(null)
     setSelectedProject(null)
   }
 
-  const handleBackToExploreOrganizations = () => {
-    setCurrentView('explore-organizations')
-    setSelectedOrganization(null)
-    setSelectedProject(null)
-    setIsExploringOrganization(false) // 重置探索模式标记
-  }
-
-  const handleBackToOrganizationDetail = () => {
-    if (selectedOrganization) {
-      setCurrentView('organization-detail')
-    } else {
-      setCurrentView('explore-organizations')
-    }
-    setSelectedProject(null)
-  }
-
-
-  const handleProjectSave = (updatedProject: Project) => {
-    setSelectedProject(updatedProject)
-    // 可以选择返回组织详情或保持在设置页面
-  }
-
-  const renderContent = () => {
-    switch (currentView) {
-      case 'dashboard':
-        // 组织工作台 - 需要选中组织且用户已登录
-        if (isGuest) {
-          return (
-            <MyOrganizations 
-              onSelectOrganization={handleSelectOrganizationForWorkspace}
-              onCreateOrganization={handleCreateOrganization}
-            />
-          )
-        }
-        return selectedOrganization ? (
-          <Dashboard organization={selectedOrganization} />
-        ) : (
-          <MyOrganizations 
-            onSelectOrganization={handleSelectOrganizationForWorkspace}
-            onCreateOrganization={handleCreateOrganization}
-          />
-        )
-      
-      case 'my-organizations':
-        if (isGuest) {
-          return (
-            <OrganizationList 
-              onSelectOrganization={handleSelectOrganizationForExplore}
-            />
-          )
-        }
-        return (
-          <MyOrganizations 
-            onSelectOrganization={handleSelectOrganizationForWorkspace}
-            onCreateOrganization={handleCreateOrganization}
-          />
-        )
-      
-      case 'explore-organizations':
-        return (
-          <OrganizationList 
-            onSelectOrganization={handleSelectOrganizationForExplore}
-          />
-        )
-        
-      case 'create-organization':
-        return (
-          <OrganizationList 
-            onSelectOrganization={handleSelectOrganizationForExplore}
-            showCreateModal={true}
-          />
-        )
-      
-      case 'organization-detail':
-        return selectedOrganization ? (
-          <OrganizationDetail
-            organization={selectedOrganization}
-            onBack={handleBackToExploreOrganizations}
-            onSelectProject={handleSelectProject}
-            onViewProject={handleViewProject}
-            // 只有在非探索模式下才传递创建项目功能
-            onCreateProject={!isExploringOrganization ? () => {
-              if (isGuest) {
-                alert('请先登录才能创建项目')
-                return
-              }
-              setCurrentView('dashboard')
-            } : undefined}
-          />
-        ) : null
-      
-      case 'project-settings':
-        if (isGuest) {
-          return (
-            <OrganizationList 
-              onSelectOrganization={handleSelectOrganizationForExplore}
-            />
-          )
-        }
-        return selectedProject ? (
-          <ProjectSettings
-            project={selectedProject}
-            onBack={handleBackToOrganizationDetail}
-            onSave={handleProjectSave}
-          />
-        ) : null
-      
-      case 'project-detail':
-        return selectedProject ? (
-          <ProjectDetailPage
-            project={selectedProject}
-            onBack={handleBackToOrganizationDetail}
-            readOnly={isGuest || !user} // 游客或未登录用户为只读模式
-          />
-        ) : null
-      
-      default:
-        return isGuest ? (
-          <OrganizationList 
-            onSelectOrganization={handleSelectOrganizationForExplore}
-          />
-        ) : (
-          <MyOrganizations 
-            onSelectOrganization={handleSelectOrganizationForWorkspace}
-            onCreateOrganization={handleCreateOrganization}
-          />
-        )
-    }
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-secondary-50 to-primary-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+      </div>
+    )
   }
 
   return (
@@ -231,12 +107,7 @@ export function MainDashboard() {
               
               <div 
                 className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={() => {
-                  setCurrentView(isGuest ? 'explore-organizations' : 'my-organizations')
-                  setSelectedOrganization(null)
-                  setSelectedProject(null)
-                  setIsExploringOrganization(false)
-                }}
+                onClick={handleLogoClick}
               >
                 <div className="p-2 bg-gradient-to-r from-primary-500 to-primary-600 rounded-xl shadow-lg">
                   <Building2 className="h-6 w-6 text-white" />
@@ -257,14 +128,14 @@ export function MainDashboard() {
               {!isGuest && (
                 <nav className="flex items-center gap-1">
                   <button
-                    onClick={handleNavigateToMyOrganizations}
+                    onClick={() => navigate('/my-organizations')}
                     className={`nav-tab ${currentView === 'my-organizations' || currentView === 'dashboard' ? 'nav-tab-active' : 'nav-tab-inactive'}`}
                   >
                     <Building2 className="h-4 w-4" />
                     我的组织
                   </button>
                   <button
-                    onClick={handleNavigateToExploreOrganizations}
+                    onClick={() => navigate('/explore-organizations')}
                     className={`nav-tab ${currentView === 'explore-organizations' || currentView === 'organization-detail' ? 'nav-tab-active' : 'nav-tab-inactive'}`}
                   >
                     <Globe className="h-4 w-4" />
@@ -341,10 +212,33 @@ export function MainDashboard() {
         </div>
       </nav>
 
-      {/* 主内容区域 */}
+      {/* 主内容区域 - 使用路由 */}
       <main className="py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {renderContent()}
+          <Routes>
+            <Route path="/" element={<MyOrganizationsPage />} />
+            <Route path="/my-organizations" element={<MyOrganizationsPage />} />
+            <Route path="/explore-organizations" element={<ExploreOrganizationsPage />} />
+            <Route path="/create-organization" element={<ExploreOrganizationsPage showCreateModal={true} />} />
+            
+            {/* 组织相关路由 - 不依赖于 selectedOrganization 状态 */}
+            <Route 
+              path="/organizations/:organizationId" 
+              element={<OrganizationDetailPage />} 
+            />
+            <Route 
+              path="/organizations/:organizationId/dashboard" 
+              element={<OrganizationDashboardPage />} 
+            />
+            <Route 
+              path="/organizations/:organizationId/projects/:projectId" 
+              element={<ProjectDetailPage />} 
+            />
+            <Route 
+              path="/organizations/:organizationId/projects/:projectId/settings" 
+              element={<ProjectSettingsPage />} 
+            />
+          </Routes>
         </div>
       </main>
 
@@ -359,7 +253,7 @@ export function MainDashboard() {
       {showInbox && (
         <InteractionLog onClose={() => {
           setShowInbox(false)
-          refreshUnreadCount() // 关闭收件箱时刷新未读数量
+          refreshUnreadCount()
         }} />
       )}
     </div>

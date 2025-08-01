@@ -55,7 +55,8 @@ export function OrganizationSelection({ userId, onComplete }: OrganizationSelect
       if (!isGuest && selectedOrganizations.length > 0) {
         // 加入选中的组织
         for (const orgId of selectedOrganizations) {
-          await organizationAPI.joinOrganization(userId, orgId, 'member')
+          // 直接加入组织（这里应该是自动加入逻辑）
+          await organizationAPI.applyToJoinOrganization(userId, orgId, '自动加入')
         }
       }
       

@@ -150,6 +150,32 @@ export const organizationAPI = {
     return data || []
   },
 
+  // 根据ID获取单个组织
+  async getOrganizationById(organizationId: string): Promise<Organization> {
+    const { data, error } = await supabase
+      .from('organizations')
+      .select('*')
+      .eq('id', organizationId)
+      .single()
+    
+    if (error) throw error
+    if (!data) throw new Error('组织不存在')
+    return data
+  },
+
+  // 根据ID获取单个项目
+  async getProjectById(projectId: string): Promise<Project> {
+    const { data, error } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('id', projectId)
+      .single()
+    
+    if (error) throw error
+    if (!data) throw new Error('项目不存在')
+    return data
+  },
+
   // 获取用户所属的组织
   async getUserOrganizations(userId: string): Promise<Organization[]> {
     const { data, error } = await supabase
@@ -162,7 +188,7 @@ export const organizationAPI = {
       .eq('user_id', userId)
     
     if (error) throw error
-    return data?.map(item => item.organizations).filter(Boolean) || []
+    return data?.map(item => (item as any).organizations).filter(Boolean) || []
   },
 
   // 创建组织
