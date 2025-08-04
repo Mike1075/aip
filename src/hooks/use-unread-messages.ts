@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { organizationAPI, supabase } from '@/lib/supabase'
+import { organizationAPI } from '@/lib/supabase'
 
 export function useUnreadMessages() {
   const { user } = useAuth()
@@ -31,6 +31,14 @@ export function useUnreadMessages() {
       const projectRequests = await organizationAPI.getProjectJoinRequestsForManager(user.id)
       const pendingProjectRequests = projectRequests.filter((request: any) => request.status === 'pending')
       totalUnread += pendingProjectRequests.length
+
+      // 3. 🆕 获取用户收到的申请状态变化通知（未读）
+      try {
+        const unreadNotifications = await organizationAPI.getUnreadNotificationCount(user.id)
+        totalUnread += unreadNotifications
+      } catch (error) {
+        console.log('通知功能暂未完全实现，跳过通知计数')
+      }
 
       setUnreadCount(totalUnread)
     } catch (error) {

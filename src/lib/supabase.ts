@@ -19,6 +19,18 @@ supabase.auth.getSession().then(({ data, error }) => {
   }
 })
 
+// 通知接口定义
+export interface Notification {
+  id: string
+  user_id: string
+  type: 'organization_request_approved' | 'organization_request_rejected' | 'project_request_approved' | 'project_request_rejected'
+  title: string
+  message: string
+  is_read: boolean
+  metadata: Record<string, any>
+  created_at: string
+}
+
 // 数据库类型定义
 export interface User {
   id: string
@@ -133,6 +145,7 @@ export interface Document {
   embedding: string // public.vector(1536)
   project_id: string
   user_id: string
+  organization_id: string // 新增组织ID字段
   created_at: string
   updated_at: string
 }
@@ -188,7 +201,7 @@ export const organizationAPI = {
       .eq('user_id', userId)
     
     if (error) throw error
-    return data?.map(item => (item as any).organizations).filter(Boolean) || []
+    return data?.map(item => item.organizations).filter(Boolean) || []
   },
 
   // 创建组织
@@ -220,6 +233,15 @@ export const organizationAPI = {
       // 如果添加成员失败，删除已创建的组织
       await supabase.from('organizations').delete().eq('id', organization.id)
       throw memberError
+    }
+
+    // 3. 为新组织创建组织智慧库文档
+    try {
+      await this.createKnowledgeBaseForNewOrganization(organization.id, creatorId)
+      console.log('✅ 组织智慧库创建成功')
+    } catch (knowledgeBaseError) {
+      console.error('⚠️ 创建组织智慧库失败（但组织创建成功）:', knowledgeBaseError)
+      // 不影响组织创建的主要流程，只记录错误
     }
 
     return organization
@@ -352,6 +374,15 @@ export const organizationAPI = {
     if (getError) throw getError
     if (!request) throw new Error('申请不存在')
 
+    // 获取组织信息用于通知
+    const { data: organization, error: orgError } = await supabase
+      .from('organizations')
+      .select('name')
+      .eq('id', request.organization_id)
+      .single()
+
+    if (orgError) throw orgError
+
     // 更新申请状态
     const { error: updateError } = await supabase
       .from('organization_join_requests')
@@ -376,6 +407,31 @@ export const organizationAPI = {
         })
 
       if (memberError) throw memberError
+    }
+
+    // 创建通知给申请者
+    try {
+      const notificationType = action === 'approve' ? 'organization_request_approved' : 'organization_request_rejected'
+      const title = action === 'approve' ? '组织申请已批准' : '组织申请已拒绝'
+      const message = action === 'approve' 
+        ? `您申请加入组织"${organization.name}"的请求已被批准，欢迎加入！`
+        : `很抱歉，您申请加入组织"${organization.name}"的请求已被拒绝。`
+
+      await this.createNotification(
+        request.user_id,
+        notificationType,
+        title,
+        message,
+        {
+          organization_id: request.organization_id,
+          organization_name: organization.name,
+          request_id: requestId,
+          reviewed_by: reviewerId
+        }
+      )
+    } catch (notificationError) {
+      console.error('创建通知失败:', notificationError)
+      // 不抛出错误，避免影响主要流程
     }
   },
 
@@ -464,153 +520,6 @@ export const organizationAPI = {
     return organizations
   },
 
-  // 调试功能：检查用户的组织成员关系
-  async debugUserOrganizations(userId: string): Promise<void> {
-    console.log('🔍 调试用户组织关系:')
-    console.log('用户ID:', userId)
-    
-    const { data, error } = await supabase
-      .from('user_organizations')
-      .select(`
-        organization_id,
-        role_in_org,
-        joined_at,
-        organizations (
-          id,
-          name
-        )
-      `)
-      .eq('user_id', userId)
-    
-    if (error) {
-      console.error('查询失败:', error)
-      return
-    }
-    
-    console.log('数据库中的组织关系:', data)
-    if (data && data.length > 0) {
-      data.forEach(rel => {
-        console.log(`- 组织: ${rel.organizations?.name} (${rel.organization_id})`)
-        console.log(`  角色: ${rel.role_in_org}`)
-        console.log(`  加入时间: ${rel.joined_at}`)
-      })
-    } else {
-      console.log('❌ 数据库中没有找到任何组织关系')
-    }
-  },
-
-  // 调试功能：强制清理用户的组织关系（小心使用）
-  async forceCleanUserOrganizations(userId: string, organizationId?: string): Promise<void> {
-    console.log('⚠️ 强制清理用户组织关系')
-    console.log('用户ID:', userId)
-    
-    let query = supabase
-      .from('user_organizations')
-      .delete()
-      .eq('user_id', userId)
-    
-    if (organizationId) {
-      query = query.eq('organization_id', organizationId)
-      console.log('清理特定组织:', organizationId)
-    } else {
-      console.log('清理所有组织关系')
-    }
-    
-    const { error } = await query
-    
-    if (error) {
-      console.error('清理失败:', error)
-      throw error
-    }
-    
-    console.log('✅ 清理完成')
-  },
-
-  // 调试功能：检查用户是否在数据库中存在
-  async debugUserExists(userId: string): Promise<void> {
-    console.log('🔍 检查用户是否在数据库中存在:')
-    console.log('用户ID:', userId)
-    
-    // 检查认证用户信息
-    const { data: authData, error: authError } = await supabase.auth.getUser()
-    console.log('认证系统用户信息:', authData.user)
-    console.log('认证错误:', authError)
-    
-    // 先查看users表结构，从现有用户中获取示例
-    console.log('📋 查看users表结构...')
-    const { data: sampleUsers, error: sampleError } = await supabase
-      .from('users')
-      .select('*')
-      .limit(1)
-    
-    console.log('users表示例记录:', sampleUsers)
-    console.log('示例查询错误:', sampleError)
-    
-    // 检查数据库中的用户记录
-    const { data: dbUser, error: dbError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single()
-    
-    console.log('数据库用户查询结果:', { dbUser, dbError })
-    
-    if (dbError) {
-      if (dbError.code === 'PGRST116') {
-        console.log('❌ 数据库中没有找到用户记录')
-        console.log('需要先创建用户记录')
-      } else {
-        console.log('❌ 查询用户记录时出错:', dbError)
-      }
-    } else {
-      console.log('✅ 数据库中找到用户记录:', dbUser)
-    }
-  },
-
-  // 自动创建用户记录（如果不存在）
-  async ensureUserExists(userId: string, email: string, name?: string): Promise<void> {
-    console.log('🔧 确保用户记录存在')
-    console.log('参数:', { userId, email, name })
-    
-    // 先检查是否已存在
-    const { data: existing, error: checkError } = await supabase
-      .from('users')
-      .select('id')
-      .eq('id', userId)
-      .single()
-    
-    if (checkError && checkError.code !== 'PGRST116') {
-      console.error('检查用户存在性失败:', checkError)
-      throw checkError
-    }
-    
-    if (existing) {
-      console.log('✅ 用户记录已存在')
-      return
-    }
-    
-    // 创建用户记录（使用最少必需字段）
-    console.log('📝 创建新用户记录...')
-    const userData = {
-      id: userId,
-      email: email,
-      name: name || email.split('@')[0],
-    }
-    console.log('用户数据:', userData)
-    
-    const { data, error } = await supabase
-      .from('users')
-      .insert(userData)
-      .select()
-    
-    if (error) {
-      console.error('❌ 创建用户记录失败:', error)
-      throw error
-    }
-    
-    console.log('✅ 用户记录创建成功:', data)
-  },
-
   // 获取组织的项目（根据权限过滤）
   async getOrganizationProjects(organizationId: string, userId?: string): Promise<Project[]> {
     let query = supabase
@@ -630,7 +539,11 @@ export const organizationAPI = {
       
       const memberProjectIds = memberProjects?.map(p => p.project_id) || []
       
-      query = query.or(`is_public.eq.true,id.in.(${memberProjectIds.join(',')})`)
+      if (memberProjectIds.length > 0) {
+        query = query.or(`is_public.eq.true,id.in.(${memberProjectIds.join(',')})`)
+      } else {
+        query = query.eq('is_public', true)
+      }
     }
     
     const { data, error } = await query.order('created_at', { ascending: false })
@@ -676,7 +589,6 @@ export const organizationAPI = {
     user_id: string,
     role_in_project: string,
     joined_at: string,
-    // 这里需要关联用户信息，但先返回基本数据
   }>> {
     const { data, error } = await supabase
       .from('project_members')
@@ -775,6 +687,26 @@ export const organizationAPI = {
 
   // 审核项目加入申请
   async reviewProjectJoinRequest(requestId: string, status: 'approved' | 'rejected', reviewerId: string): Promise<void> {
+    // 获取申请详情
+    const { data: request, error: getError } = await supabase
+      .from('project_join_requests')
+      .select('*')
+      .eq('id', requestId)
+      .single()
+
+    if (getError) throw getError
+    if (!request) throw new Error('申请不存在')
+
+    // 获取项目信息用于通知
+    const { data: project, error: projectError } = await supabase
+      .from('projects')
+      .select('name')
+      .eq('id', request.project_id)
+      .single()
+
+    if (projectError) throw projectError
+
+    // 更新申请状态
     const { error } = await supabase
       .from('project_join_requests')
       .update({
@@ -788,175 +720,67 @@ export const organizationAPI = {
 
     // 如果批准，则添加到项目成员
     if (status === 'approved') {
-      const { data: request } = await supabase
-        .from('project_join_requests')
-        .select('project_id, user_id')
-        .eq('id', requestId)
-        .single()
-      
-      if (request) {
-        await supabase
-          .from('project_members')
-          .insert({
-            project_id: request.project_id,
-            user_id: request.user_id,
-            role_in_project: 'developer', // 默认角色
-            joined_at: new Date().toISOString()
-          })
-      }
+      await supabase
+        .from('project_members')
+        .insert({
+          project_id: request.project_id,
+          user_id: request.user_id,
+          role_in_project: 'developer', // 默认角色
+          joined_at: new Date().toISOString()
+        })
     }
-  },
 
-  // 检查数据库中存在的表
-  async checkDatabaseTables(): Promise<void> {
-    console.log('🔍 检查数据库中的表...')
-    
-    // 尝试查询各个表，看哪些存在
-    const tables = [
-      'users',
-      'organizations', 
-      'user_organizations',
-      'organization_join_requests',
-      'project_join_requests',
-      'projects'
-    ]
-    
-    for (const tableName of tables) {
-      try {
-        const { data, error } = await supabase
-          .from(tableName)
-          .select('*')
-          .limit(1)
-        
-        if (error) {
-          console.error(`❌ 表 ${tableName} 不存在或查询失败:`, error.message)
-        } else {
-          console.log(`✅ 表 ${tableName} 存在，记录数示例:`, data?.length || 0)
-        }
-      } catch (err) {
-        console.error(`❌ 表 ${tableName} 查询出错:`, err)
-      }
-    }
-  },
+    // 创建通知给申请者
+    try {
+      const notificationType = status === 'approved' ? 'project_request_approved' : 'project_request_rejected'
+      const title = status === 'approved' ? '项目申请已批准' : '项目申请已拒绝'
+      const message = status === 'approved' 
+        ? `您申请加入项目"${project.name}"的请求已被批准，欢迎加入！`
+        : `很抱歉，您申请加入项目"${project.name}"的请求已被拒绝。`
 
-  // 调试功能：检查数据库中的申请数据
-  async debugDatabaseState(): Promise<void> {
-    console.log('🔍 === 数据库状态调试 ===')
-    
-    // 1. 检查所有用户
-    console.log('👥 检查用户表...')
-    const { data: users, error: usersError } = await supabase
-      .from('users')
-      .select('id, email, name')
-      .limit(10)
-    console.log('用户:', users)
-    if (usersError) console.error('用户查询错误:', usersError)
-    
-    // 2. 检查所有组织
-    console.log('🏢 检查组织表...')
-    const { data: orgs, error: orgsError } = await supabase
-      .from('organizations')
-      .select('id, name, description, created_at')
-      .limit(10)
-    console.log('组织:', orgs)
-    if (orgsError) console.error('组织查询错误:', orgsError)
-    
-    // 3. 检查用户-组织关系（匹配实际表结构）
-    console.log('🤝 检查用户-组织关系...')
-    const { data: userOrgs, error: userOrgsError } = await supabase
-      .from('user_organizations')
-      .select(`
-        id,
-        user_id,
-        organization_id,
-        role_in_org,
-        joined_at,
-        created_at
-      `)
-      .limit(10)
-    console.log('用户-组织关系（原始数据）:', userOrgs)
-    if (userOrgsError) console.error('用户-组织关系查询错误:', userOrgsError)
-    
-    // 4. 检查所有组织加入申请
-    console.log('📝 检查组织加入申请...')
-    const { data: requests, error: requestsError } = await supabase
-      .from('organization_join_requests')
-      .select(`
-        id,
-        user_id,
-        organization_id,
-        status,
+      await this.createNotification(
+        request.user_id,
+        notificationType,
+        title,
         message,
-        created_at,
-        reviewed_at,
-        reviewed_by
-      `)
-      .order('created_at', { ascending: false })
-      .limit(10)
-    console.log('组织加入申请（原始数据）:', requests)
-    if (requestsError) console.error('申请查询错误:', requestsError)
-    
-    console.log('🔍 === 数据库状态调试结束 ===')
-  },
-
-  // 更新组织名称
-  async updateOrganizationName(organizationId: string, newName: string, userId: string): Promise<void> {
-    console.log('🔧 更新组织名称:', { organizationId, newName, userId })
-    
-    // 检查用户是否为组织管理员
-    const userRole = await this.getUserRoleInOrganization(userId, organizationId)
-    if (userRole !== 'admin') {
-      throw new Error('只有组织管理员可以修改组织名称')
+        {
+          project_id: request.project_id,
+          project_name: project.name,
+          request_id: requestId,
+          reviewed_by: reviewerId
+        }
+      )
+    } catch (notificationError) {
+      console.error('创建通知失败:', notificationError)
+      // 不抛出错误，避免影响主要流程
     }
-    
-    const { error } = await supabase
-      .from('organizations')
-      .update({ name: newName })
-      .eq('id', organizationId)
-    
-    if (error) {
-      console.error('❌ 更新组织名称失败:', error)
-      throw error
-    }
-    
-    console.log('✅ 组织名称更新成功')
-  },
-
-  // 更新项目名称
-  async updateProjectName(projectId: string, newName: string, userId: string): Promise<void> {
-    console.log('🔧 更新项目名称:', { projectId, newName, userId })
-    
-    // 检查用户是否为项目管理员
-    const userRole = await this.getUserProjectRole(projectId, userId)
-    if (userRole !== 'manager') {
-      throw new Error('只有项目管理员可以修改项目名称')
-    }
-    
-    const { error } = await supabase
-      .from('projects')
-      .update({ name: newName })
-      .eq('id', projectId)
-    
-    if (error) {
-      console.error('❌ 更新项目名称失败:', error)
-      throw error
-    }
-    
-    console.log('✅ 项目名称更新成功')
   },
 
   // 为新项目创建智慧库文档
   async createKnowledgeBaseForNewProject(projectId: string, userId: string): Promise<void> {
     console.log('📚 为新项目创建智慧库文档:', { projectId, userId })
     
+    // 首先获取项目信息以获取organization_id
+    const { data: project, error: projectError } = await supabase
+      .from('projects')
+      .select('organization_id')
+      .eq('id', projectId)
+      .single()
+    
+    if (projectError) {
+      console.error('❌ 获取项目信息失败:', projectError)
+      throw projectError
+    }
+    
     const { error } = await supabase
       .from('documents')
       .insert({
         project_id: projectId,
         user_id: userId,
+        organization_id: project.organization_id, // 添加组织ID
         title: '项目智慧库',
         content: '', // 改为空字符串而不是 null
-        metadata: {},
+        metadata: { type: 'project_knowledge_base' },
         embedding: null
       })
     
@@ -965,60 +789,291 @@ export const organizationAPI = {
       throw error
     }
     
-    console.log('✅ 智慧库文档创建成功')
+    console.log('✅ 项目智慧库文档创建成功，已关联组织ID:', project.organization_id)
   },
 
-  // 测试函数：手动创建智慧库文档
-  async testCreateKnowledgeBase(projectId: string, userId: string): Promise<void> {
-    console.log('🧪 测试创建智慧库文档')
-    try {
-      await this.createKnowledgeBaseForNewProject(projectId, userId)
-      console.log('🎉 测试成功！')
-    } catch (error) {
-      console.error('💥 测试失败:', error)
+  // 为新组织创建组织智慧库文档
+  async createKnowledgeBaseForNewOrganization(organizationId: string, userId: string): Promise<void> {
+    console.log('🏢 为新组织创建组织智慧库文档:', { organizationId, userId })
+    
+    const { error } = await supabase
+      .from('documents')
+      .insert({
+        project_id: null, // 组织级文档不关联具体项目
+        user_id: userId,
+        organization_id: organizationId,
+        title: '组织智慧库',
+        content: '', // 空的智慧库内容
+        metadata: { 
+          type: 'organization_knowledge_base',
+          description: '组织级别的知识库，用于存储组织相关的文档和信息'
+        },
+        embedding: null
+      })
+    
+    if (error) {
+      console.error('❌ 创建组织智慧库文档失败:', error)
+      throw error
     }
+    
+    console.log('✅ 组织智慧库文档创建成功，组织ID:', organizationId)
   },
 
-  // 删除组织（仅创建者可删除）
-  async deleteOrganization(organizationId: string, userId: string): Promise<void> {
-    // 1. 检查用户是否为组织管理员
-    const { data: userOrg, error: checkError } = await supabase
-      .from('user_organizations')
-      .select('role_in_org')
-      .eq('user_id', userId)
-      .eq('organization_id', organizationId)
+  // ===== 通知系统 API =====
+  
+  // 创建通知
+  async createNotification(
+    userId: string, 
+    type: Notification['type'], 
+    title: string, 
+    message: string, 
+    metadata: Record<string, any> = {}
+  ): Promise<Notification> {
+    const { data, error } = await supabase
+      .from('notifications')
+      .insert({
+        user_id: userId,
+        type,
+        title,
+        message,
+        is_read: false,
+        metadata
+      })
+      .select()
       .single()
     
-    if (checkError || !userOrg || userOrg.role_in_org !== 'admin') {
-      throw new Error('只有组织管理员可以删除组织')
-    }
+    if (error) throw error
+    return data
+  },
 
-    // 2. 检查组织内是否还有项目
+  // 获取用户的未读通知数量
+  async getUnreadNotificationCount(userId: string): Promise<number> {
+    const { count, error } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('is_read', false)
+    
+    if (error) throw error
+    return count || 0
+  },
+
+  // 获取用户的所有通知
+  async getUserNotifications(userId: string, limit: number = 50): Promise<Notification[]> {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    
+    if (error) throw error
+    return data || []
+  },
+
+  // 标记通知为已读
+  async markNotificationAsRead(notificationId: string): Promise<void> {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', notificationId)
+    
+    if (error) throw error
+  },
+
+  // 标记用户所有通知为已读
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('user_id', userId)
+      .eq('is_read', false)
+    
+    if (error) throw error
+  },
+
+  // 获取组织智慧库文档
+  async getOrganizationKnowledgeBase(organizationId: string): Promise<Document | null> {
+    console.log('📚 获取组织智慧库文档:', { organizationId })
+    
+    const { data, error } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .eq('title', '组织智慧库')
+      .is('project_id', null) // 组织级文档不关联具体项目
+      .single()
+    
+    if (error && error.code !== 'PGRST116') {
+      console.error('❌ 获取组织智慧库失败:', error)
+      throw error
+    }
+    
+    if (!data) {
+      console.log('📝 组织智慧库不存在')
+      return null
+    }
+    
+    console.log('✅ 获取组织智慧库成功')
+    return data
+  },
+
+  // 获取组织的所有文档（包括组织级和项目级）
+  async getOrganizationAllDocuments(organizationId: string): Promise<Document[]> {
+    console.log('📚 获取组织所有文档:', { organizationId })
+    
+    const { data, error } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false })
+    
+    if (error) {
+      console.error('❌ 获取组织文档失败:', error)
+      throw error
+    }
+    
+    console.log('✅ 获取组织文档成功，文档数量:', data?.length || 0)
+    return data || []
+  },
+
+  // 删除组织
+  async deleteOrganization(organizationId: string, userId: string): Promise<void> {
+    console.log('🗑️ 删除组织:', { organizationId, userId })
+    
+    // 1. 检查用户是否为组织管理员
+    const userRole = await this.getUserRoleInOrganization(userId, organizationId)
+    if (userRole !== 'admin') {
+      throw new Error('只有组织管理员才能删除组织')
+    }
+    
+    // 2. 检查组织是否还有项目
     const { data: projects, error: projectError } = await supabase
       .from('projects')
       .select('id')
       .eq('organization_id', organizationId)
     
-    if (projectError) throw projectError
+    if (projectError) {
+      console.error('❌ 检查组织项目失败:', projectError)
+      throw projectError
+    }
     
     if (projects && projects.length > 0) {
-      throw new Error('请先删除组织内的所有项目，然后再删除组织')
+      throw new Error('无法删除组织：组织内还有项目，请先删除所有项目')
     }
+    
+    // 3. 删除组织相关数据（按依赖关系顺序删除）
+    try {
+      // 删除组织文档（包括组织智慧库）
+      const { error: docsError } = await supabase
+        .from('documents')
+        .delete()
+        .eq('organization_id', organizationId)
+      
+      if (docsError) {
+        console.error('❌ 删除组织文档失败:', docsError)
+        throw docsError
+      }
+      
+      // 删除组织加入申请
+      const { error: requestsError } = await supabase
+        .from('organization_join_requests')
+        .delete()
+        .eq('organization_id', organizationId)
+      
+      if (requestsError) {
+        console.error('❌ 删除组织申请失败:', requestsError)
+        throw requestsError
+      }
+      
+      // 删除用户-组织关联
+      const { error: membersError } = await supabase
+        .from('user_organizations')
+        .delete()
+        .eq('organization_id', organizationId)
+      
+      if (membersError) {
+        console.error('❌ 删除组织成员关系失败:', membersError)
+        throw membersError
+      }
+      
+      // 最后删除组织本身
+      const { error: orgError } = await supabase
+        .from('organizations')
+        .delete()
+        .eq('id', organizationId)
+      
+      if (orgError) {
+        console.error('❌ 删除组织失败:', orgError)
+        throw orgError
+      }
+      
+      console.log('✅ 组织删除成功')
+      
+    } catch (error) {
+      console.error('❌ 删除组织过程中出现错误:', error)
+      throw error
+    }
+  },
 
-    // 3. 删除用户-组织关联
-    const { error: memberError } = await supabase
-      .from('user_organizations')
-      .delete()
+  // ===== 文档管理 API =====
+  
+  // 创建文档（自动关联组织ID）
+  async createDocument(
+    projectId: string,
+    userId: string,
+    title: string,
+    content: string,
+    metadata: Record<string, any> = {}
+  ): Promise<Document> {
+    // 获取项目信息以获取organization_id
+    const { data: project, error: projectError } = await supabase
+      .from('projects')
+      .select('organization_id')
+      .eq('id', projectId)
+      .single()
+    
+    if (projectError) throw projectError
+    
+    const { data, error } = await supabase
+      .from('documents')
+      .insert({
+        project_id: projectId,
+        user_id: userId,
+        organization_id: project.organization_id,
+        title,
+        content,
+        metadata,
+        embedding: null
+      })
+      .select()
+      .single()
+    
+    if (error) throw error
+    return data
+  },
+
+  // 获取组织的所有文档
+  async getOrganizationDocuments(organizationId: string): Promise<Document[]> {
+    const { data, error } = await supabase
+      .from('documents')
+      .select('*')
       .eq('organization_id', organizationId)
+      .order('created_at', { ascending: false })
     
-    if (memberError) throw memberError
+    if (error) throw error
+    return data || []
+  },
 
-    // 4. 删除组织
-    const { error: orgError } = await supabase
-      .from('organizations')
-      .delete()
-      .eq('id', organizationId)
+  // 获取项目的所有文档
+  async getProjectDocuments(projectId: string): Promise<Document[]> {
+    const { data, error } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
     
-    if (orgError) throw orgError
+    if (error) throw error
+    return data || []
   }
-} 
+}

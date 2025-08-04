@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react'
-import { MessageSquare as LogIcon, Users, FolderOpen, Clock, Check, X, User, Send, Inbox, Eye } from 'lucide-react'
-import { organizationAPI, OrganizationJoinRequest, supabase } from '@/lib/supabase'
+import { MessageSquare as LogIcon, Users, FolderOpen, Clock, Check, X, User, Send, Inbox, Eye, Bell } from 'lucide-react'
+import { organizationAPI, OrganizationJoinRequest, supabase, Notification } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface InteractionLogProps {
   onClose: () => void
 }
 
-type RequestType = 'organization' | 'project'
-type InteractionType = 'received' | 'sent'
+type RequestType = 'organization' | 'project' | 'notification'
+type InteractionType = 'received' | 'sent' | 'notification'
 
 interface UnifiedInteraction {
   id: string
@@ -20,7 +20,7 @@ interface UnifiedInteraction {
   otherPartyName: string // 对方用户名
   otherPartyEmail: string // 对方邮箱
   message?: string
-  status: 'pending' | 'approved' | 'rejected'
+  status: 'pending' | 'approved' | 'rejected' | 'read' | 'unread'
   createdAt: string
   reviewedAt?: string
   organizationId?: string
@@ -109,6 +109,34 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
           originalRequest: request
         })
       })
+
+      // 4. 🆕 获取用户的通知
+      console.log('🔔 获取用户通知...')
+      try {
+        const notifications = await organizationAPI.getUserNotifications(user.id)
+        console.log('📋 用户通知:', notifications)
+        
+        notifications.forEach((notification: Notification) => {
+          allInteractions.push({
+            id: notification.id,
+            type: 'notification',
+            interactionType: 'notification',
+            title: notification.title,
+            description: notification.message,
+            targetName: notification.metadata?.organization_name || notification.metadata?.project_name || '系统通知',
+            otherPartyName: '系统',
+            otherPartyEmail: '',
+            message: notification.message,
+            status: notification.is_read ? 'read' : 'unread',
+            createdAt: notification.created_at,
+            organizationId: notification.metadata?.organization_id,
+            projectId: notification.metadata?.project_id,
+            originalRequest: notification
+          })
+        })
+      } catch (error) {
+        console.log('获取通知失败，可能是数据库表不存在:', error)
+      }
 
       console.log('📨 所有交互:', allInteractions)
 
@@ -237,6 +265,10 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
         return <span className="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">已批准</span>
       case 'rejected':
         return <span className="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">已拒绝</span>
+      case 'unread':
+        return <span className="px-2 py-1 bg-orange-100 text-orange-800 text-xs rounded-full">未读</span>
+      case 'read':
+        return <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">已读</span>
       default:
         return <span className="px-2 py-1 bg-gray-100 text-gray-800 text-xs rounded-full">{status}</span>
     }
@@ -313,6 +345,16 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
           >
             发送的 ({interactions.filter(i => i.interactionType === 'sent').length})
           </button>
+          <button
+            onClick={() => setActiveTab('notifications')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === 'notifications'
+                ? 'border-primary-600 text-primary-600'
+                : 'border-transparent text-secondary-600 hover:text-secondary-900'
+            }`}
+          >
+            通知 ({interactions.filter(i => i.interactionType === 'notification').length})
+          </button>
         </div>
 
         {/* 内容区域 */}
@@ -331,6 +373,7 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
                 {activeTab === 'all' && '还没有任何申请记录'}
                 {activeTab === 'received' && '还没有收到任何申请'}
                 {activeTab === 'sent' && '还没有发送任何申请'}
+                {activeTab === 'notifications' && '还没有任何通知'}
               </p>
             </div>
           ) : (

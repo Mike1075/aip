@@ -92,6 +92,8 @@ export function OrganizationDetailPage() {
       onSelectProject={handleSelectProject}
       onViewProject={handleViewProject}
       onCreateProject={handleCreateProject}
+      showManagementButtons={false}
+      showProjectManagementButton={false}
     />
   )
 }

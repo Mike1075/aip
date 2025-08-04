@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { memo } from 'react'
 import { Project } from '@/lib/supabase'
 import { Calendar, Users, Activity, FolderOpen, Trash2, Edit3, Eye, EyeOff, UserPlus, UserX } from 'lucide-react'
 import { format } from 'date-fns'
@@ -13,9 +13,11 @@ interface ProjectGridProps {
   onTogglePublic?: (projectId: string, isPublic: boolean) => void
   onToggleRecruiting?: (projectId: string, isRecruiting: boolean) => void
   userProjectPermissions?: Record<string, 'manager' | 'member' | 'none'> // 用户在各项目中的权限
+  showCreateButton?: boolean // 是否显示创建按钮
+  showEditControls?: boolean // 是否显示编辑控件
 }
 
-export function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEditDescription, onProjectClick, onTogglePublic, onToggleRecruiting, userProjectPermissions }: ProjectGridProps) {
+export const ProjectGrid = memo(function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEditDescription, onProjectClick, onTogglePublic, onToggleRecruiting, userProjectPermissions, showCreateButton = true, showEditControls = true }: ProjectGridProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
@@ -51,12 +53,14 @@ export function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEdit
         <div className="text-center py-12">
           <FolderOpen className="h-12 w-12 text-secondary-400 mx-auto mb-4" />
           <p className="text-secondary-600 mb-4">还没有参与任何项目</p>
-          <button 
-            onClick={onCreateProject}
-            className="btn-primary"
-          >
-            创建第一个项目
-          </button>
+          {showCreateButton && onCreateProject && (
+            <button 
+              onClick={onCreateProject}
+              className="btn-primary"
+            >
+              创建第一个项目
+            </button>
+          )}
         </div>
       </div>
     )
@@ -93,8 +97,8 @@ export function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEdit
                       招募中
                     </span>
                   )}
-                  {/* 只有项目经理才能看到管理按钮 */}
-                  {canManage && onTogglePublic && (
+                  {/* 编辑控件 - 根据 showEditControls 参数控制显示 */}
+                  {showEditControls && canManage && onTogglePublic && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -114,7 +118,7 @@ export function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEdit
                       )}
                     </button>
                   )}
-                  {canManage && onToggleRecruiting && (
+                  {showEditControls && canManage && onToggleRecruiting && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -134,7 +138,7 @@ export function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEdit
                       )}
                     </button>
                   )}
-                  {canManage && onEditDescription && (
+                  {showEditControls && canManage && onEditDescription && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -146,7 +150,7 @@ export function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEdit
                       <Edit3 className="h-4 w-4 text-secondary-400 group-hover:text-blue-500" />
                     </button>
                   )}
-                  {canManage && onDeleteProject && (
+                  {showEditControls && canManage && onDeleteProject && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
@@ -189,4 +193,4 @@ export function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEdit
       </div>
     </div>
   )
-} 
+}) 

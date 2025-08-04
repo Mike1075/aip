@@ -16,7 +16,9 @@
       "Bash(git remote get-url:*)",
       "Bash(git commit:*)",
       "Bash(--title \"feat: 完整的AI聊天系统和文件上传功能 🚀\" )",
-      "Bash(--body \"## 🎉 Mike老师，AI聊天系统开发完成！\n\n我已经完成了完整的AI聊天系统和文件上传功能的开发，请您审查代码！\n\n### ✨ 核心功能  \n- **智能聊天记录管理** - 支持真正的清空体验（类似微信）\n- **完整文件上传系统** - 支持PDF/图片/DOC/TXT文件上传\n- **n8n工作流深度集成** - 文件处理和AI对话无缝衔接\n- **用户体验大幅优化** - 可折叠界面、智能状态管理\n\n### 🛠️ 技术亮点\n- 实现chat_history表完整对接\n- 使用localStorage的清空点机制  \n- JSON响应智能解析\n- 错误处理和用户反馈优化\n\n### 📊 代码统计\n- **新增**: 775行功能代码\n- **文件**: 6个核心文件优化\n- **组件**: 2个全新组件\n- **提交**: 最新commit 64a9dbf\n\n### 🎯 用户现在可以\n- 流畅地上传各种文档\n- 享受智能AI对话体验\n- 管理聊天历史记录\n- 获得即时的错误反馈\n\n请审查代码，如果满意请合并到main分支！感谢您的指导！🙏\n\n---\n🤖 Generated with [Claude Code](https://claude.ai/code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\")"
+      "Bash(--body \"## 🎉 Mike老师，AI聊天系统开发完成！\n\n我已经完成了完整的AI聊天系统和文件上传功能的开发，请您审查代码！\n\n### ✨ 核心功能  \n- **智能聊天记录管理** - 支持真正的清空体验（类似微信）\n- **完整文件上传系统** - 支持PDF/图片/DOC/TXT文件上传\n- **n8n工作流深度集成** - 文件处理和AI对话无缝衔接\n- **用户体验大幅优化** - 可折叠界面、智能状态管理\n\n### 🛠️ 技术亮点\n- 实现chat_history表完整对接\n- 使用localStorage的清空点机制  \n- JSON响应智能解析\n- 错误处理和用户反馈优化\n\n### 📊 代码统计\n- **新增**: 775行功能代码\n- **文件**: 6个核心文件优化\n- **组件**: 2个全新组件\n- **提交**: 最新commit 64a9dbf\n\n### 🎯 用户现在可以\n- 流畅地上传各种文档\n- 享受智能AI对话体验\n- 管理聊天历史记录\n- 获得即时的错误反馈\n\n请审查代码，如果满意请合并到main分支！感谢您的指导！🙏\n\n---\n🤖 Generated with [Claude Code](https://claude.ai/code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\")",
+      "Bash(curl:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": []
   }

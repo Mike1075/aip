@@ -168,6 +168,8 @@ export function MainDashboard() {
               }
               setCurrentView('dashboard')
             } : undefined}
+            showManagementButtons={!isExploringOrganization}
+            showProjectManagementButton={!isExploringOrganization}
           />
         ) : null
       

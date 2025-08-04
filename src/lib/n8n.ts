@@ -43,6 +43,7 @@ export interface ProjectDocument {
   metadata: any
   project_id: string
   user_id: string
+  organization_id: string // 新增组织ID字段
   created_at: string
 }
 
@@ -457,6 +458,18 @@ const saveDocumentRecord = async (
 
   console.log('💾 保存文档记录到数据库...', { title, filename: file.name, projectId })
 
+  // 首先获取项目信息以获取organization_id
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .select('organization_id')
+    .eq('id', projectId)
+    .single()
+  
+  if (projectError) {
+    console.error('❌ 获取项目信息失败:', projectError)
+    throw projectError
+  }
+
   const { error } = await supabase
     .from('documents')
     .insert({
@@ -469,7 +482,8 @@ const saveDocumentRecord = async (
         upload_status: 'processing'
       },
       project_id: projectId,
-      user_id: userId
+      user_id: userId,
+      organization_id: project.organization_id // 添加组织ID
     })
 
   if (error) {
@@ -477,5 +491,5 @@ const saveDocumentRecord = async (
     throw error
   }
   
-  console.log('✅ 文档记录保存成功')
+  console.log('✅ 文档记录保存成功，已关联组织ID:', project.organization_id)
 }
