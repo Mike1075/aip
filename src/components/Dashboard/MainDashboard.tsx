@@ -23,7 +23,7 @@ export function MainDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showInbox, setShowInbox] = useState(false)
   const [isExploringOrganization, setIsExploringOrganization] = useState(false) // 标记是否是在探索模式
-  const { unreadCount, refreshUnreadCount } = useUnreadMessages()
+  const { unreadCount, refreshUnreadCount, forceRefresh } = useUnreadMessages()
 
   // 导航处理函数
   const handleNavigateToMyOrganizations = () => {
@@ -168,8 +168,6 @@ export function MainDashboard() {
               }
               setCurrentView('dashboard')
             } : undefined}
-            showManagementButtons={!isExploringOrganization}
-            showProjectManagementButton={!isExploringOrganization}
           />
         ) : null
       
@@ -281,8 +279,12 @@ export function MainDashboard() {
               {user && !isGuest && (
                 <button
                   onClick={() => setShowInbox(true)}
+                  onDoubleClick={() => {
+                    console.log('🔄 双击收件箱，强制刷新权限和未读消息')
+                    forceRefresh()
+                  }}
                   className="p-2 hover:bg-secondary-100 rounded-lg transition-colors relative"
-                  title="收件箱"
+                  title="收件箱 (双击强制刷新)"
                 >
                   <Inbox className="h-5 w-5 text-secondary-600" />
                   {unreadCount > 0 && (
@@ -361,7 +363,7 @@ export function MainDashboard() {
       {showInbox && (
         <InteractionLog onClose={() => {
           setShowInbox(false)
-          refreshUnreadCount() // 关闭收件箱时刷新未读数量
+          forceRefresh() // 关闭收件箱时强制刷新，确保权限变更生效
         }} />
       )}
     </div>

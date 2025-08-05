@@ -24,7 +24,7 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
   const [isProjectMember, setIsProjectMember] = useState(false)
   const [isProjectManager, setIsProjectManager] = useState(false)
   const [checkingMembership, setCheckingMembership] = useState(true)
-  const [projectMembers, setProjectMembers] = useState<Array<{user_id: string, role_in_project: string}>>([])
+  const [projectMembers, setProjectMembers] = useState<Array<{user_id: string, role_in_project: string, user?: {name?: string, email?: string}}>>([])
 
   useEffect(() => {
     loadTasks()
@@ -58,12 +58,31 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
 
   const loadProjectMembers = async () => {
     try {
-      const members = await organizationAPI.getProjectMembers(project.id)
-      setProjectMembers(members)
+      console.log('👥 开始加载项目成员...')
+      
+      const { data: members, error } = await supabase
+        .from('project_members')
+        .select(`
+          user_id,
+          role_in_project,
+          user:users!project_members_user_id_fkey(name, email)
+        `)
+        .eq('project_id', project.id)
+
+      if (error) {
+        console.error('❌ 加载项目成员失败:', error)
+        throw error
+      }
+
+      console.log('👥 项目成员加载成功:', members)
+      setProjectMembers(members || [])
+      
     } catch (error) {
-      console.error('加载项目成员失败:', error)
+      console.error('❌ 加载项目成员失败:', error)
+      setProjectMembers([])
     }
   }
+
 
   const loadTasks = async () => {
     try {
@@ -194,25 +213,37 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
   const assignTask = async (taskId: string, assigneeId: string) => {
     const task = tasks.find(t => t.id === taskId)
     if (!task || (!isProjectManager && task.created_by_id !== user?.id)) {
+      console.log('❌ 没有分配权限:', { isProjectManager, taskCreator: task.created_by_id, currentUser: user?.id })
       return // 只有项目经理或任务创建者可以分配任务
     }
 
     try {
+      console.log('🎯 开始分配任务:', { taskId, assigneeId, taskTitle: task.title })
+      
       // 将空字符串转换为null，以便正确处理"未分配"状态
       const assigneeValue = assigneeId === '' ? null : assigneeId
       
-      const { error } = await supabase
+      console.log('📊 更新数据库，assignee_id:', assigneeValue)
+      const { error, data } = await supabase
         .from('tasks')
         .update({ assignee_id: assigneeValue })
         .eq('id', taskId)
+        .select()
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ 数据库更新失败:', error)
+        throw error
+      }
 
+      console.log('✅ 数据库更新成功:', data)
+      
       setTasks(prev => prev.map(t =>
         t.id === taskId ? { ...t, assignee_id: assigneeValue || undefined } : t
       ))
+      
+      console.log('✅ 本地状态更新完成')
     } catch (error) {
-      console.error('分配任务失败:', error)
+      console.error('❌ 分配任务失败:', error)
       alert('分配任务失败，请重试')
     }
   }
@@ -557,7 +588,7 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
                           <option value="">未分配</option>
                           {projectMembers.map((member) => (
                             <option key={member.user_id} value={member.user_id}>
-                              {member.user_id === user?.id ? '我' : `用户${member.user_id.slice(-4)}`}
+                              {member.user_id === user?.id ? '我' : (member.user?.name || member.user?.email || `用户${member.user_id.slice(-4)}`)}
                             </option>
                           ))}
                         </select>

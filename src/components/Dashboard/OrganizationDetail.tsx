@@ -10,15 +10,11 @@ interface OrganizationDetailProps {
   onSelectProject: (project: Project) => void
   onViewProject?: (project: Project) => void  // 查看项目详情
   onCreateProject?: () => void  // 跳转到创建项目
-  showManagementButtons?: boolean  // 是否显示管理按钮（创建项目）
-  showProjectManagementButton?: boolean  // 是否显示项目管理按钮（只在我的项目中显示）
 }
 
-export function OrganizationDetail({ organization, onBack, onSelectProject, onViewProject, onCreateProject, showManagementButtons = true, showProjectManagementButton = false }: OrganizationDetailProps) {
+export function OrganizationDetail({ organization, onBack, onSelectProject, onViewProject, onCreateProject }: OrganizationDetailProps) {
   const { user, signOut } = useAuth()
-  const [projects, setProjects] = useState<Project[]>([])  
-  const [myProjects, setMyProjects] = useState<Project[]>([])  // 我的项目
-  const [orgProjects, setOrgProjects] = useState<Project[]>([])  // 组织项目
+  const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   const [joinRequests, setJoinRequests] = useState<{[projectId: string]: ProjectJoinRequest}>({})
   const [submittingRequest, setSubmittingRequest] = useState<{[projectId: string]: boolean}>({})
@@ -45,17 +41,6 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
         user?.id
       )
       setProjects(orgProjects)
-      
-      // 分离我的项目和组织项目
-      if (user) {
-        const myProjectsList = orgProjects.filter(project => project.creator_id === user.id)
-        const otherProjectsList = orgProjects.filter(project => project.creator_id !== user.id)
-        setMyProjects(myProjectsList)
-        setOrgProjects(otherProjectsList)
-      } else {
-        setMyProjects([])
-        setOrgProjects(orgProjects)
-      }
       
       // 如果用户已登录，检查权限和申请状态
       if (user) {
@@ -395,141 +380,40 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
         </div>
       )}
 
-      {/* 我的项目 */}
-      {user && (
-        <div className="card">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-lg font-semibold text-secondary-900">
-              我的项目 ({myProjects.length})
-            </h2>
-            {isOrgAdmin && onCreateProject && showManagementButtons && (
-              <button 
-                onClick={onCreateProject}
-                className="btn-primary"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                创建项目
-              </button>
-            )}
-          </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600" />
-            </div>
-          ) : myProjects.length === 0 ? (
-            <div className="text-center py-8">
-              <Users className="h-12 w-12 text-secondary-300 mx-auto mb-4" />
-              <h3 className="font-semibold text-secondary-900 mb-2">
-                暂无项目
-              </h3>
-              <p className="text-secondary-600">
-                {isOrgAdmin ? '创建您的第一个项目' : '您还没有在此组织创建任何项目'}
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {myProjects.map((project) => (
-                <div
-                  key={project.id}
-                  className="p-4 border border-secondary-200 rounded-lg hover:shadow-md transition-all group"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      {project.is_public ? (
-                        <Eye className="h-4 w-4 text-green-500" />
-                      ) : (
-                        <Lock className="h-4 w-4 text-amber-500" />
-                      )}
-                      <span className="text-xs text-secondary-500">
-                        {project.is_public ? '公开' : '私有'}
-                      </span>
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
-                      {getStatusText(project.status)}
-                    </span>
-                  </div>
-
-                  <h3 className="font-semibold text-secondary-900 mb-2">
-                    <InlineEdit
-                      value={project.name}
-                      onSave={(newName) => handleUpdateProjectName(project.id, newName)}
-                      canEdit={projectEditPermissions[project.id] || false}
-                      className="font-semibold text-secondary-900"
-                      placeholder="项目名称"
-                      maxLength={50}
-                    />
-                  </h3>
-                  
-                  <p className="text-sm text-secondary-600 line-clamp-2 mb-4">
-                    {project.description || '暂无描述'}
-                  </p>
-
-                  <div className="flex items-center justify-between text-xs text-secondary-500 mb-3">
-                    <span>创建于 {formatDate(project.created_at)}</span>
-                    <div className="flex items-center gap-2">
-                      {project.is_recruiting && (
-                        <span className="bg-green-100 text-green-700 px-2 py-1 rounded-full flex items-center gap-1">
-                          <UserPlus className="h-3 w-3" />
-                          招募中
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* 操作按钮 */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => onViewProject ? onViewProject(project) : onSelectProject(project)}
-                      className="flex-1 btn-secondary btn-sm flex items-center justify-center gap-1"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      查看详情
-                    </button>
-                    
-                    {/* 项目管理按钮 */}
-                    {showProjectManagementButton && (
-                      <button
-                        onClick={() => onSelectProject(project)}
-                        className="btn-primary btn-sm flex items-center justify-center gap-1"
-                        title="项目管理"
-                      >
-                        <Cog className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 组织项目 */}
+      {/* 项目列表 */}
       <div className="card">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-secondary-900">
-            组织项目 ({orgProjects.length})
+            项目列表 ({projects.length})
           </h2>
+          {user && isOrgAdmin && onCreateProject && (
+            <button 
+              onClick={onCreateProject}
+              className="btn-primary"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              创建项目
+            </button>
+          )}
         </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary-600" />
           </div>
-        ) : orgProjects.length === 0 ? (
+        ) : projects.length === 0 ? (
           <div className="text-center py-8">
             <Users className="h-12 w-12 text-secondary-300 mx-auto mb-4" />
             <h3 className="font-semibold text-secondary-900 mb-2">
-              暂无组织项目
+              暂无项目
             </h3>
             <p className="text-secondary-600">
-              该组织暂时没有其他成员创建的公开项目
+              {user && isOrgAdmin ? '成为第一个在此组织创建项目的人' : '该组织暂时没有公开项目'}
             </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {orgProjects.map((project) => (
+            {projects.map((project) => (
               <div
                 key={project.id}
                 className="p-4 border border-secondary-200 rounded-lg hover:shadow-md transition-all group"
@@ -610,7 +494,16 @@ export function OrganizationDetail({ organization, onBack, onSelectProject, onVi
                     </span>
                   )}
                   
-                  {/* 项目管理按钮不在组织项目中显示 */}
+                  {/* 项目管理按钮（项目成员可见） */}
+                  {user && (
+                    <button
+                      onClick={() => onSelectProject(project)}
+                      className="btn-primary btn-sm flex items-center justify-center gap-1"
+                      title="项目管理"
+                    >
+                      <Cog className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

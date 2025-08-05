@@ -1,6 +1,6 @@
-import React, { memo } from 'react'
+import React from 'react'
 import { Project } from '@/lib/supabase'
-import { Calendar, Users, Activity, FolderOpen, Trash2, Edit3, Eye, EyeOff, UserPlus, UserX } from 'lucide-react'
+import { Calendar, Users, Activity, FolderOpen, Trash2, Edit3, Eye, EyeOff, UserPlus, UserX, Send, LogIn } from 'lucide-react'
 import { format } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
 
@@ -12,12 +12,14 @@ interface ProjectGridProps {
   onProjectClick?: (project: Project) => void
   onTogglePublic?: (projectId: string, isPublic: boolean) => void
   onToggleRecruiting?: (projectId: string, isRecruiting: boolean) => void
+  onApplyToJoin?: (projectId: string, projectName: string) => void
   userProjectPermissions?: Record<string, 'manager' | 'member' | 'none'> // 用户在各项目中的权限
   showCreateButton?: boolean // 是否显示创建按钮
   showEditControls?: boolean // 是否显示编辑控件
+  showApplyButton?: boolean // 是否显示申请按钮
 }
 
-export const ProjectGrid = memo(function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEditDescription, onProjectClick, onTogglePublic, onToggleRecruiting, userProjectPermissions, showCreateButton = true, showEditControls = true }: ProjectGridProps) {
+export function ProjectGrid({ projects, onCreateProject, onDeleteProject, onEditDescription, onProjectClick, onTogglePublic, onToggleRecruiting, onApplyToJoin, userProjectPermissions, showCreateButton = true, showEditControls = true, showApplyButton = false }: ProjectGridProps) {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'active':
@@ -48,32 +50,23 @@ export const ProjectGrid = memo(function ProjectGrid({ projects, onCreateProject
 
   if (projects.length === 0) {
     return (
-      <div className="card">
-        <h2 className="text-xl font-semibold text-secondary-900 mb-4">我的项目</h2>
-        <div className="text-center py-12">
-          <FolderOpen className="h-12 w-12 text-secondary-400 mx-auto mb-4" />
-          <p className="text-secondary-600 mb-4">还没有参与任何项目</p>
-          {showCreateButton && onCreateProject && (
-            <button 
-              onClick={onCreateProject}
-              className="btn-primary"
-            >
-              创建第一个项目
-            </button>
-          )}
-        </div>
+      <div className="text-center py-12">
+        <FolderOpen className="h-12 w-12 text-secondary-400 mx-auto mb-4" />
+        <p className="text-secondary-600 mb-4">还没有参与任何项目</p>
+        {onCreateProject && (
+          <button 
+            onClick={onCreateProject}
+            className="btn-primary"
+          >
+            创建第一个项目
+          </button>
+        )}
       </div>
     )
   }
 
   return (
-    <div className="card">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-secondary-900">我的项目</h2>
-        <span className="text-sm text-secondary-500">{projects.length} 个项目</span>
-      </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {projects.map((project) => {
           const userPermission = userProjectPermissions?.[project.id] || 'none'
           const canManage = userPermission === 'manager'
@@ -97,7 +90,7 @@ export const ProjectGrid = memo(function ProjectGrid({ projects, onCreateProject
                       招募中
                     </span>
                   )}
-                  {/* 编辑控件 - 根据 showEditControls 参数控制显示 */}
+                  {/* 只有项目经理才能看到管理按钮 */}
                   {showEditControls && canManage && onTogglePublic && (
                     <button
                       onClick={(e) => {
@@ -171,26 +164,41 @@ export const ProjectGrid = memo(function ProjectGrid({ projects, onCreateProject
               </p>
             )}
             
-            <div className="flex items-center gap-4 text-xs text-secondary-500">
-              <div className="flex items-center gap-1">
-                <Calendar className="h-3 w-3" />
-                {format(new Date(project.created_at), 'MMM dd', { locale: zhCN })}
-              </div>
-              <div className="flex items-center gap-1">
-                <Users className="h-3 w-3" />
-                团队项目
-              </div>
-              {project.is_public && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4 text-xs text-secondary-500">
                 <div className="flex items-center gap-1">
-                  <Activity className="h-3 w-3" />
-                  公开项目
+                  <Calendar className="h-3 w-3" />
+                  {format(new Date(project.created_at), 'MMM dd', { locale: zhCN })}
                 </div>
+                <div className="flex items-center gap-1">
+                  <Users className="h-3 w-3" />
+                  团队项目
+                </div>
+                {project.is_public && (
+                  <div className="flex items-center gap-1">
+                    <Activity className="h-3 w-3" />
+                    公开项目
+                  </div>
+                )}
+              </div>
+
+              {/* 申请加入按钮 - 右下角小图标 */}
+              {showApplyButton && project.is_recruiting && userPermission === 'none' && onApplyToJoin && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onApplyToJoin(project.id, project.name)
+                  }}
+                  className="p-1.5 bg-primary-600 hover:bg-primary-700 text-white rounded-full transition-colors shadow-sm hover:shadow-md"
+                  title="申请加入项目"
+                >
+                  <LogIn className="h-3.5 w-3.5" />
+                </button>
               )}
             </div>
           </div>
           )
         })}
-      </div>
     </div>
   )
-}) 
+} 

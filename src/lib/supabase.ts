@@ -311,12 +311,12 @@ export const organizationAPI = {
     console.log('🔍 getOrganizationJoinRequests - 查询组织加入申请')
     console.log('组织ID:', organizationId)
     
-    // 先获取申请基本信息
+    // 先获取申请基本信息 - 临时移除pending限制，查看所有状态
     const { data: requests, error } = await supabase
       .from('organization_join_requests')
       .select('*')
       .eq('organization_id', organizationId)
-      .eq('status', 'pending')
+      // .eq('status', 'pending')  // 临时注释掉，查看所有申请
       .order('created_at', { ascending: false })
 
     console.log('📊 组织申请查询结果:', { requests, error })
@@ -411,13 +411,21 @@ export const organizationAPI = {
 
     // 创建通知给申请者
     try {
+      console.log('📔 开始为申请者创建通知...')
       const notificationType = action === 'approve' ? 'organization_request_approved' : 'organization_request_rejected'
       const title = action === 'approve' ? '组织申请已批准' : '组织申请已拒绝'
       const message = action === 'approve' 
         ? `您申请加入组织"${organization.name}"的请求已被批准，欢迎加入！`
         : `很抱歉，您申请加入组织"${organization.name}"的请求已被拒绝。`
 
-      await this.createNotification(
+      console.log('📔 通知参数:', {
+        userId: request.user_id,
+        type: notificationType,
+        title,
+        message
+      })
+
+      const notification = await this.createNotification(
         request.user_id,
         notificationType,
         title,
@@ -429,8 +437,10 @@ export const organizationAPI = {
           reviewed_by: reviewerId
         }
       )
+      
+      console.log('✅ 通知创建成功:', notification)
     } catch (notificationError) {
-      console.error('创建通知失败:', notificationError)
+      console.error('❌ 创建通知失败:', notificationError)
       // 不抛出错误，避免影响主要流程
     }
   },
@@ -669,7 +679,7 @@ export const organizationAPI = {
 
     const projectIds = managedProjects.map(pm => pm.project_id)
     
-    // 获取这些项目的待审核申请
+    // 获取这些项目的申请 - 临时移除pending限制，查看所有状态
     const { data: requests, error: requestError } = await supabase
       .from('project_join_requests')
       .select(`
@@ -678,7 +688,7 @@ export const organizationAPI = {
         project:projects!project_join_requests_project_id_fkey(id, name)
       `)
       .in('project_id', projectIds)
-      .eq('status', 'pending')
+      // .eq('status', 'pending')  // 临时注释掉，查看所有申请
       .order('created_at', { ascending: false })
 
     if (requestError) throw requestError

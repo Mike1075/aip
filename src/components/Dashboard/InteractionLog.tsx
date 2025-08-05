@@ -33,7 +33,7 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
   const [interactions, setInteractions] = useState<UnifiedInteraction[]>([])
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'all' | 'received' | 'sent'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'received' | 'sent' | 'notifications'>('all')
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
 
   useEffect(() => {
@@ -49,17 +49,20 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
       setLoading(true)
       console.log('🔄 开始加载交互日志，用户ID:', user.id)
       
-      // 首先检查数据库表是否存在
-      await organizationAPI.checkDatabaseTables()
-      // 然后调试数据库状态
-      await organizationAPI.debugDatabaseState()
-      
       const allInteractions: UnifiedInteraction[] = []
 
       // 1. 获取用户接收到的请求（用户管理的组织收到的申请）
       console.log('📥 获取接收到的请求...')
-      const managedOrgs = await organizationAPI.getUserManagedOrganizations(user.id)
-      console.log('🔍 用户管理的组织:', managedOrgs)
+      let managedOrgs: any[] = []
+      try {
+        managedOrgs = await organizationAPI.getUserManagedOrganizations(user.id)
+        console.log('🔍 用户管理的组织:', managedOrgs)
+        console.log('🔍 管理的组织数量:', managedOrgs.length)
+      } catch (error) {
+        console.error('❌ 获取用户管理的组织失败:', error)
+        console.log('⚠️ 将使用空数组继续执行')
+        managedOrgs = []
+      }
       
       for (const org of managedOrgs) {
         const orgRequests = await organizationAPI.getOrganizationJoinRequests(org.id)
@@ -139,13 +142,43 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
       }
 
       console.log('📨 所有交互:', allInteractions)
+      console.log('📨 交互数量:', allInteractions.length)
 
       // 按时间倒序排列
       allInteractions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       
       setInteractions(allInteractions)
+      console.log('✅ 交互数据设置完成，当前interactions状态:', allInteractions)
+      
+      // 临时添加更多调试，看看实际数据库中的数据
+      console.log('🔍 最终结果检查:')
+      console.log('- managedOrgs数量:', managedOrgs.length)
+      console.log('- allInteractions数量:', allInteractions.length)
+      
+      // 直接查询数据库看看有没有数据
+      try {
+        console.log('🔍 直接查询数据库...')
+        const { data: allOrgRequests, error: allOrgError } = await supabase
+          .from('organization_join_requests')
+          .select('*')
+          .limit(10)
+        
+        const { data: allProjectRequests, error: allProjectError } = await supabase
+          .from('project_join_requests')
+          .select('*')
+          .limit(10)
+          
+        console.log('📊 数据库中的组织申请:', allOrgRequests)
+        console.log('📊 数据库中的项目申请:', allProjectRequests)
+        console.log('📊 组织申请查询错误:', allOrgError)
+        console.log('📊 项目申请查询错误:', allProjectError)
+      } catch (dbError) {
+        console.error('❌ 直接查询数据库失败:', dbError)
+      }
     } catch (error) {
       console.error('加载交互日志失败:', error)
+      // 即使出错也要显示错误信息而不是空白
+      setInteractions([])
     } finally {
       setLoading(false)
     }
@@ -286,6 +319,7 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
 
   const filteredInteractions = interactions.filter(interaction => {
     if (activeTab === 'all') return true
+    if (activeTab === 'notifications') return interaction.interactionType === 'notification'
     return interaction.interactionType === activeTab
   })
 

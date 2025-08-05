@@ -23,21 +23,32 @@ export function useUnreadMessages() {
       
       for (const org of managedOrgs) {
         const orgRequests = await organizationAPI.getOrganizationJoinRequests(org.id)
+        console.log(`📊 组织 ${org.name} 的所有申请:`, orgRequests)
         const pendingRequests = orgRequests.filter((request: any) => request.status === 'pending')
+        console.log(`📊 组织 ${org.name} 的待处理申请:`, pendingRequests)
         totalUnread += pendingRequests.length
       }
 
       // 2. 获取用户管理的项目收到的待处理申请
       const projectRequests = await organizationAPI.getProjectJoinRequestsForManager(user.id)
+      console.log(`📊 用户管理的项目申请:`, projectRequests)
       const pendingProjectRequests = projectRequests.filter((request: any) => request.status === 'pending')
+      console.log(`📊 用户管理的项目待处理申请:`, pendingProjectRequests)
       totalUnread += pendingProjectRequests.length
 
       // 3. 🆕 获取用户收到的申请状态变化通知（未读）
       try {
+        console.log('📔 开始获取用户通知...')
         const unreadNotifications = await organizationAPI.getUnreadNotificationCount(user.id)
+        console.log('📔 用户未读通知数量:', unreadNotifications)
         totalUnread += unreadNotifications
+        
+        // 同时获取所有通知看看有什么
+        const allNotifications = await organizationAPI.getUserNotifications(user.id, 10)
+        console.log('📔 用户最近10条通知:', allNotifications)
       } catch (error) {
-        console.log('通知功能暂未完全实现，跳过通知计数')
+        console.error('❌ 获取通知失败:', error)
+        console.log('通知功能可能未完全实现或数据库表不存在，跳过通知计数')
       }
 
       setUnreadCount(totalUnread)
@@ -63,9 +74,24 @@ export function useUnreadMessages() {
     loadUnreadCount()
   }
 
+  // 强制清除所有缓存并重新加载
+  const forceRefresh = async () => {
+    setLoading(true)
+    setUnreadCount(0)
+    
+    // 清除可能的缓存（如果有）
+    try {
+      await loadUnreadCount()
+    } catch (error) {
+      console.error('强制刷新失败:', error)
+      setUnreadCount(0)
+    }
+  }
+
   return {
     unreadCount,
     loading,
-    refreshUnreadCount
+    refreshUnreadCount,
+    forceRefresh
   }
 }

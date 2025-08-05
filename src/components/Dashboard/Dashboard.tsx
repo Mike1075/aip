@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase, Project, Task, Organization, organizationAPI } from '@/lib/supabase'
 import { ProjectGrid } from './ProjectGrid'
@@ -7,6 +6,7 @@ import { CompactTaskList } from './CompactTaskList'
 import { AIChat } from './AIChat'
 import { CreateProjectModal } from './CreateProjectModal'
 import { EditDescriptionModal } from './EditDescriptionModal'
+import { ProjectDetailPage } from './ProjectDetailPage'
 import { Plus, MessageSquare, Building2, Users, Trophy } from 'lucide-react'
 
 interface DashboardProps {
@@ -15,7 +15,6 @@ interface DashboardProps {
 
 export function Dashboard({ organization }: DashboardProps) {
   const { user, signOut } = useAuth()
-  const navigate = useNavigate()
   const [projects, setProjects] = useState<Project[]>([])  // 所有项目
   const [myCreatedProjects, setMyCreatedProjects] = useState<Project[]>([])  // 我创建的项目
   const [organizationProjects, setOrganizationProjects] = useState<Project[]>([])  // 组织中其他成员创建的项目
@@ -27,11 +26,15 @@ export function Dashboard({ organization }: DashboardProps) {
   const [showEditDescription, setShowEditDescription] = useState(false)
   const [editingProject, setEditingProject] = useState<{id: string, name: string, description: string} | null>(null)
   const [updatingDescription, setUpdatingDescription] = useState(false)
+  const [showProjectDetail, setShowProjectDetail] = useState(false)
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [userProjectPermissions, setUserProjectPermissions] = useState<Record<string, 'manager' | 'member' | 'none'>>({})
   const [isOrganizationMember, setIsOrganizationMember] = useState(false)
 
   useEffect(() => {
     if (user && organization) {
+      // 组件加载完成，设置loading为false
+      setLoading(false)
       loadDashboardData()
     }
   }, [user, organization])
@@ -39,105 +42,65 @@ export function Dashboard({ organization }: DashboardProps) {
   const loadDashboardData = async () => {
     if (!user || !organization) return
 
-    setLoading(true)
     try {
       // 获取当前组织的项目（用户参与的）
       const projects = await organizationAPI.getOrganizationProjects(organization.id, user.id)
       setProjects(projects)
+
+      // 获取用户在各项目中的权限
+      const permissions: Record<string, 'manager' | 'member' | 'none'> = {}
+      for (const project of projects) {
+        try {
+          const role = await organizationAPI.getUserProjectRole(project.id, user.id)
+          // 将项目角色映射到权限类型
+          if (role === 'manager') {
+            permissions[project.id] = 'manager'
+          } else if (role === 'developer' || role === 'tester' || role === 'designer') {
+            permissions[project.id] = 'member'
+          } else {
+            permissions[project.id] = 'none'
+          }
+        } catch (error) {
+          console.error(`获取项目 ${project.id} 权限失败:`, error)
+          permissions[project.id] = 'none'
+        }
+      }
+      setUserProjectPermissions(permissions)
       
-      // 分离我创建的项目和组织中其他成员创建的项目
-      const myCreatedList = projects.filter(project => project.creator_id === user.id)
-      const organizationList = projects.filter(project => project.creator_id !== user.id)
+      // 分离我的项目（创建的+加入的）和组织中其他项目（我未参与的）
+      const myProjectsList = projects.filter(project => {
+        // 检查是否是我创建的项目，或者我是项目成员
+        return project.creator_id === user.id || permissions[project.id] !== 'none'
+      })
       
-      setMyCreatedProjects(myCreatedList)
+      const organizationList = projects.filter(project => {
+        // 组织项目：不是我创建的，且我没有参与的项目
+        return project.creator_id !== user.id && permissions[project.id] === 'none'
+      })
+      
+      setMyCreatedProjects(myProjectsList)
       setOrganizationProjects(organizationList)
       
       console.log(`🔍 项目分类结果:`, {
         总项目数: projects.length,
-        我创建的: myCreatedList.length,
+        我的项目: myProjectsList.length,
         组织项目: organizationList.length
       })
 
-      // 批量获取用户在各项目中的权限（性能优化）
-      const permissions: Record<string, 'manager' | 'member' | 'none'> = {}
-      if (projects.length > 0) {
-        try {
-          const projectIds = projects.map(p => p.id)
-          const { data: memberRoles, error: rolesError } = await supabase
-            .from('project_members')
-            .select('project_id, role_in_project')
-            .eq('user_id', user.id)
-            .in('project_id', projectIds)
-          
-          if (rolesError) {
-            console.error('批量获取项目权限失败:', rolesError)
-            // 设置默认权限
-            projects.forEach(project => {
-              permissions[project.id] = 'none'
-            })
-          } else {
-            // 处理查询结果
-            projects.forEach(project => {
-              const memberRole = memberRoles?.find(role => role.project_id === project.id)
-              if (memberRole) {
-                if (memberRole.role_in_project === 'manager') {
-                  permissions[project.id] = 'manager'
-                } else if (['developer', 'tester', 'designer'].includes(memberRole.role_in_project)) {
-                  permissions[project.id] = 'member'
-                } else {
-                  permissions[project.id] = 'none'
-                }
-              } else {
-                permissions[project.id] = 'none'
-              }
-            })
-          }
-        } catch (error) {
-          console.error('批量权限查询出错:', error)
-          projects.forEach(project => {
-            permissions[project.id] = 'none'
-          })
-        }
-      }
-      setUserProjectPermissions(permissions)
-
-      // 并行执行剩余的查询（性能优化）
-      const myCreatedProjectIds = myCreatedList.map(p => p.id) // 只获取我创建的项目的任务
-      const [orgMemberResult, tasksResult] = await Promise.allSettled([
-        // 检查用户是否是该组织的成员
-        organizationAPI.getUserOrganizations(user.id),
-        // 加载用户在我创建的项目中的任务
-        myCreatedProjectIds.length > 0 ? supabase
-          .from('tasks')
-          .select('*')
-          .eq('assignee_id', user.id)
-          .in('project_id', myCreatedProjectIds)
-          .order('created_at', { ascending: false }) : Promise.resolve({ data: [], error: null })
-      ])
-
-      // 处理组织成员身份结果
-      if (orgMemberResult.status === 'fulfilled') {
-        const isMember = orgMemberResult.value.some(userOrg => userOrg.id === organization.id)
+      // 检查用户是否是该组织的成员
+      try {
+        const userOrgs = await organizationAPI.getUserOrganizations(user.id)
+        const isMember = userOrgs.some(userOrg => userOrg.id === organization.id)
         setIsOrganizationMember(isMember)
-        console.log(`🔍 用户在组织 ${organization.name} 的成员身份: ${isMember ? '是成员' : '非成员'}`)
-      } else {
-        console.error('检查组织成员身份失败:', orgMemberResult.reason)
+        console.log(`🔍 用户 ${user.id} 在组织 ${organization.name} 的成员身份: ${isMember ? '是成员' : '非成员'}`)
+        console.log('用户所属组织:', userOrgs.map(o => o.name))
+      } catch (error) {
+        console.error('检查组织成员身份失败:', error)
         setIsOrganizationMember(false)
       }
 
-      // 处理任务查询结果
-      if (tasksResult.status === 'fulfilled') {
-        const { data: userTasks, error: tasksError } = tasksResult.value
-        if (tasksError) {
-          console.error('加载任务失败:', tasksError)
-          setMyTasks([])
-        } else {
-          setMyTasks(userTasks || [])
-        }
-      } else {
-        console.error('加载任务出错:', tasksResult.reason)
-        setMyTasks([])
-      }
+      // 获取分配给当前用户的任务
+      await loadUserTasks()
       
     } catch (error) {
       console.error('❌ 加载仪表板数据失败:', error)
@@ -145,6 +108,36 @@ export function Dashboard({ organization }: DashboardProps) {
       setMyTasks([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadUserTasks = async () => {
+    if (!user) return
+
+    try {
+      console.log('📋 开始加载用户任务...')
+      
+      // 获取分配给当前用户的任务
+      const { data: userTasks, error } = await supabase
+        .from('tasks')
+        .select(`
+          *,
+          project:projects!tasks_project_id_fkey(id, name)
+        `)
+        .eq('assignee_id', user.id)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('❌ 获取用户任务失败:', error)
+        throw error
+      }
+
+      console.log('📋 用户任务查询结果:', userTasks)
+      setMyTasks(userTasks || [])
+      
+    } catch (error) {
+      console.error('❌ 加载用户任务失败:', error)
+      setMyTasks([])
     }
   }
 
@@ -343,8 +336,13 @@ export function Dashboard({ organization }: DashboardProps) {
   }
 
   const handleProjectClick = (project: Project) => {
-    if (!organization) return
-    navigate(`/organizations/${organization.id}/projects/${project.id}`)
+    setSelectedProject(project)
+    setShowProjectDetail(true)
+  }
+
+  const handleBackToProjects = () => {
+    setShowProjectDetail(false)
+    setSelectedProject(null)
   }
 
   const handleTaskStatusChange = (taskId: string, newStatus: string) => {
@@ -410,6 +408,45 @@ export function Dashboard({ organization }: DashboardProps) {
     }
   }
 
+  const handleApplyToJoin = async (projectId: string, projectName: string) => {
+    if (!user) return
+
+    // 简单的确认对话框
+    const message = prompt(`请输入申请加入项目 "${projectName}" 的理由：`, '我希望加入这个项目并贡献我的技能')
+    if (!message) return
+
+    try {
+      console.log('📋 申请加入项目:', projectId, projectName)
+      
+      const { error } = await supabase
+        .from('project_join_requests')
+        .insert([
+          {
+            project_id: projectId,
+            user_id: user.id,
+            message: message,
+            status: 'pending'
+          }
+        ])
+
+      if (error) {
+        console.error('❌ 申请加入项目失败:', error)
+        throw error
+      }
+
+      console.log('✅ 申请发送成功！')
+      alert('申请已发送，请等待项目管理员审核')
+      
+    } catch (error: any) {
+      console.error('❌ 申请加入项目失败:', error)
+      if (error.code === '23505') {
+        alert('您已经申请过此项目，请等待审核结果')
+      } else {
+        alert(`申请失败：${error.message || '请重试'}`)
+      }
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-secondary-50 flex items-center justify-center">
@@ -422,6 +459,13 @@ export function Dashboard({ organization }: DashboardProps) {
     <div className="min-h-screen bg-secondary-50">
       {/* 主内容区 */}
       <div className="flex-1">
+          {showProjectDetail && selectedProject ? (
+            <ProjectDetailPage 
+              project={selectedProject}
+              onBack={handleBackToProjects}
+            />
+          ) : (
+            <>
               {/* 页头 */}
               <div className="mb-8">
                 <div className="flex items-center gap-3 mb-4">
@@ -451,6 +495,11 @@ export function Dashboard({ organization }: DashboardProps) {
                   <MessageSquare className="h-4 w-4" />
                   与AI对话
                 </button>
+                {!isOrganizationMember && (
+                  <div className="text-sm text-secondary-500 italic px-3 py-2 bg-secondary-50 rounded-lg">
+                    只有组织成员才能创建项目
+                  </div>
+                )}
               </div>
 
               {/* 主要内容布局 */}
@@ -462,7 +511,7 @@ export function Dashboard({ organization }: DashboardProps) {
                     projects={myCreatedProjects}
                     userId={user?.id}
                     onTaskStatusChange={handleTaskStatusChange}
-                    onTaskUpdate={loadDashboardData} 
+                    onTaskUpdate={loadUserTasks} 
                   />
                 </div>
                 
@@ -470,102 +519,107 @@ export function Dashboard({ organization }: DashboardProps) {
                 <div className="xl:col-span-3 space-y-6">
                   {/* 我创建的项目 */}
                   <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 mb-4">
                       <div className="p-2 bg-primary-100 rounded-lg">
-                        <Trophy className="h-5 w-5 text-primary-600" />
+                        <Users className="h-5 w-5 text-primary-600" />
                       </div>
                       <div>
                         <h2 className="text-xl font-semibold text-secondary-900">
                           我的项目 ({myCreatedProjects.length})
                         </h2>
                         <p className="text-sm text-secondary-600">
-                          由我创建和管理的项目
+                          您创建和参与的项目
                         </p>
                       </div>
-                    </div>
-                    {isOrganizationMember && (
-                      <button 
-                        onClick={() => setShowCreateProject(true)}
-                        className="btn-primary flex items-center gap-2"
-                      >
-                        <Plus className="h-4 w-4" />
-                        创建项目
-                      </button>
-                    )}
-                  </div>
-                  
-                  {myCreatedProjects.length === 0 ? (
-                    <div className="text-center py-12 bg-white rounded-xl border border-secondary-200">
-                      <Trophy className="h-12 w-12 text-secondary-300 mx-auto mb-4" />
-                      <h3 className="font-semibold text-secondary-900 mb-2">
-                        还没有创建项目
-                      </h3>
-                      <p className="text-secondary-600 mb-4">
-                        {isOrganizationMember ? '创建您的第一个项目开始协作' : '加入组织后即可创建项目'}
-                      </p>
                       {isOrganizationMember && (
                         <button 
                           onClick={() => setShowCreateProject(true)}
-                          className="btn-primary"
+                          className="ml-auto btn-primary flex items-center gap-2"
                         >
-                          <Plus className="h-4 w-4 mr-2" />
+                          <Plus className="h-4 w-4" />
                           创建项目
                         </button>
                       )}
                     </div>
-                  ) : (
-                    <ProjectGrid 
-                      projects={myCreatedProjects} 
-                      onDeleteProject={handleDeleteProject}
-                      onEditDescription={handleEditDescription}
-                      onProjectClick={handleProjectClick}
-                      onTogglePublic={handleTogglePublic}
-                      onToggleRecruiting={handleToggleRecruiting}
-                      userProjectPermissions={userProjectPermissions}
-                      showCreateButton={false}
-                    />
-                  )}
-                </div>
-                
-                {/* 组织项目 */}
-                <div>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <Users className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-semibold text-secondary-900">
-                        组织项目 ({organizationProjects.length})
-                      </h2>
-                      <p className="text-sm text-secondary-600">
-                        组织中其他成员创建的项目
-                      </p>
-                    </div>
+                    
+                    {myCreatedProjects.length === 0 ? (
+                      <div className="text-center py-8 bg-white rounded-lg border border-secondary-200">
+                        <Trophy className="h-12 w-12 text-secondary-300 mx-auto mb-4" />
+                        <h3 className="font-semibold text-secondary-900 mb-2">
+                          {isOrganizationMember ? '创建您的第一个项目' : '暂无项目'}
+                        </h3>
+                        <p className="text-secondary-600">
+                          {isOrganizationMember ? '开始您的第一个项目吧！' : '您还没有在此组织创建任何项目'}
+                        </p>
+                        {isOrganizationMember && (
+                          <button 
+                            onClick={() => setShowCreateProject(true)}
+                            className="mt-4 btn-primary"
+                          >
+                            创建项目
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="card">
+                        <ProjectGrid 
+                          projects={myCreatedProjects} 
+                          onDeleteProject={handleDeleteProject}
+                          onEditDescription={handleEditDescription}
+                          onProjectClick={handleProjectClick}
+                          onTogglePublic={handleTogglePublic}
+                          onToggleRecruiting={handleToggleRecruiting}
+                          userProjectPermissions={userProjectPermissions}
+                          showCreateButton={false}
+                        />
+                      </div>
+                    )}
                   </div>
                   
-                  {organizationProjects.length === 0 ? (
-                    <div className="text-center py-12 bg-white rounded-xl border border-secondary-200">
-                      <Users className="h-12 w-12 text-secondary-300 mx-auto mb-4" />
-                      <h3 className="font-semibold text-secondary-900 mb-2">
-                        暂无组织项目
-                      </h3>
-                      <p className="text-secondary-600">
-                        组织中还没有其他成员创建的项目
-                      </p>
+                  {/* 组织项目 */}
+                  <div>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-2 bg-blue-100 rounded-lg">
+                        <Building2 className="h-5 w-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-semibold text-secondary-900">
+                          组织项目 ({organizationProjects.length})
+                        </h2>
+                        <p className="text-sm text-secondary-600">
+                          您尚未参与的组织项目
+                        </p>
+                      </div>
                     </div>
-                  ) : (
-                    <ProjectGrid 
-                      projects={organizationProjects} 
-                      onProjectClick={handleProjectClick}
-                      userProjectPermissions={userProjectPermissions}
-                      showCreateButton={false}
-                      showEditControls={false}
-                    />
-                  )}
-                </div>
+                    
+                    {organizationProjects.length === 0 ? (
+                      <div className="text-center py-8 bg-white rounded-lg border border-secondary-200">
+                        <Building2 className="h-12 w-12 text-secondary-300 mx-auto mb-4" />
+                        <h3 className="font-semibold text-secondary-900 mb-2">
+                          暂无组织项目
+                        </h3>
+                        <p className="text-secondary-600">
+                          组织中暂无您未参与的项目
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="card">
+                        <ProjectGrid 
+                          projects={organizationProjects} 
+                          onProjectClick={handleProjectClick}
+                          onApplyToJoin={handleApplyToJoin}
+                          userProjectPermissions={userProjectPermissions}
+                          showCreateButton={false}
+                          showEditControls={false}
+                          showApplyButton={true}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
+            </>
+          )}
       </div>
 
       {/* AI聊天弹窗 */}
