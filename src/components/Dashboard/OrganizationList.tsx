@@ -271,7 +271,7 @@ export function OrganizationList({ onSelectOrganization, showCreateModal: initia
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Lock className="h-4 w-4 text-amber-500" />
-                        <span className="text-sm text-secondary-600">我的项目</span>
+                        <span className="text-sm text-secondary-600">私有项目</span>
                       </div>
                       <span className="font-medium text-amber-600">
                         {privateProjects.length}
