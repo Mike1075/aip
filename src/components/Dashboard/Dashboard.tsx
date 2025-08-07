@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { supabase, Project, Task, Organization, organizationAPI } from '@/lib/supabase'
 import { ProjectGrid } from './ProjectGrid'
@@ -6,8 +7,9 @@ import { CompactTaskList } from './CompactTaskList'
 import { AIChat } from './AIChat'
 import { CreateProjectModal } from './CreateProjectModal'
 import { EditDescriptionModal } from './EditDescriptionModal'
-import { ProjectDetailPage } from './ProjectDetailPage'
-import { Plus, MessageSquare, Building2, Users, Trophy } from 'lucide-react'
+import { generatePath } from '@/config/routes'
+import { useOrganizationCache } from '@/hooks/use-data-cache'
+import { Plus, MessageSquare, Building2, Users, Trophy, RefreshCw } from 'lucide-react'
 
 interface DashboardProps {
   organization?: Organization
@@ -15,19 +17,26 @@ interface DashboardProps {
 
 export function Dashboard({ organization }: DashboardProps) {
   const { user, signOut } = useAuth()
+  const navigate = useNavigate()
+  const { 
+    fetchOrganizationProjectsWithCache, 
+    fetchUserTasksWithCache, 
+    fetchUserOrganizationsWithCache,
+    clearOrganizationCache 
+  } = useOrganizationCache()
+  
   const [projects, setProjects] = useState<Project[]>([])  // 所有项目
   const [myCreatedProjects, setMyCreatedProjects] = useState<Project[]>([])  // 我创建的项目
   const [organizationProjects, setOrganizationProjects] = useState<Project[]>([])  // 组织中其他成员创建的项目
   const [myTasks, setMyTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [showAIChat, setShowAIChat] = useState(false)
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [creatingProject, setCreatingProject] = useState(false)
   const [showEditDescription, setShowEditDescription] = useState(false)
   const [editingProject, setEditingProject] = useState<{id: string, name: string, description: string} | null>(null)
   const [updatingDescription, setUpdatingDescription] = useState(false)
-  const [showProjectDetail, setShowProjectDetail] = useState(false)
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const [userProjectPermissions, setUserProjectPermissions] = useState<Record<string, 'manager' | 'member' | 'none'>>({})
   const [isOrganizationMember, setIsOrganizationMember] = useState(false)
 
@@ -39,12 +48,18 @@ export function Dashboard({ organization }: DashboardProps) {
     }
   }, [user, organization])
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (forceRefresh = false) => {
     if (!user || !organization) return
 
     try {
-      // 获取当前组织的项目（用户参与的）
-      const projects = await organizationAPI.getOrganizationProjects(organization.id, user.id)
+      console.log(`🔄 开始加载仪表板数据 ${forceRefresh ? '(强制刷新)' : '(使用缓存)'}`)
+      
+      // 使用缓存获取当前组织的项目
+      const projects = await fetchOrganizationProjectsWithCache(
+        organization.id, 
+        user.id,
+        () => organizationAPI.getOrganizationProjects(organization.id, user.id)
+      )
       setProjects(projects)
 
       // 获取用户在各项目中的权限
@@ -87,20 +102,22 @@ export function Dashboard({ organization }: DashboardProps) {
         组织项目: organizationList.length
       })
 
-      // 检查用户是否是该组织的成员
+      // 使用缓存检查用户是否是该组织的成员
       try {
-        const userOrgs = await organizationAPI.getUserOrganizations(user.id)
+        const userOrgs = await fetchUserOrganizationsWithCache(
+          user.id,
+          () => organizationAPI.getUserOrganizations(user.id)
+        )
         const isMember = userOrgs.some(userOrg => userOrg.id === organization.id)
         setIsOrganizationMember(isMember)
         console.log(`🔍 用户 ${user.id} 在组织 ${organization.name} 的成员身份: ${isMember ? '是成员' : '非成员'}`)
-        console.log('用户所属组织:', userOrgs.map(o => o.name))
       } catch (error) {
         console.error('检查组织成员身份失败:', error)
         setIsOrganizationMember(false)
       }
 
       // 获取分配给当前用户的任务
-      await loadUserTasks()
+      await loadUserTasks(forceRefresh)
       
     } catch (error) {
       console.error('❌ 加载仪表板数据失败:', error)
@@ -108,37 +125,59 @@ export function Dashboard({ organization }: DashboardProps) {
       setMyTasks([])
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }
 
-  const loadUserTasks = async () => {
+  const loadUserTasks = async (forceRefresh = false) => {
     if (!user) return
 
     try {
-      console.log('📋 开始加载用户任务...')
+      console.log(`📋 开始加载用户任务... ${forceRefresh ? '(强制刷新)' : '(使用缓存)'}`)
       
-      // 获取分配给当前用户的任务
-      const { data: userTasks, error } = await supabase
-        .from('tasks')
-        .select(`
-          *,
-          project:projects!tasks_project_id_fkey(id, name)
-        `)
-        .eq('assignee_id', user.id)
-        .order('created_at', { ascending: false })
+      // 使用缓存获取分配给当前用户的任务
+      const userTasks = await fetchUserTasksWithCache(
+        user.id,
+        async () => {
+          const { data, error } = await supabase
+            .from('tasks')
+            .select(`
+              *,
+              project:projects!tasks_project_id_fkey(id, name)
+            `)
+            .eq('assignee_id', user.id)
+            .order('created_at', { ascending: false })
 
-      if (error) {
-        console.error('❌ 获取用户任务失败:', error)
-        throw error
-      }
+          if (error) {
+            console.error('❌ 获取用户任务失败:', error)
+            throw error
+          }
+
+          return data || []
+        }
+      )
 
       console.log('📋 用户任务查询结果:', userTasks)
-      setMyTasks(userTasks || [])
+      setMyTasks(userTasks)
       
     } catch (error) {
       console.error('❌ 加载用户任务失败:', error)
       setMyTasks([])
     }
+  }
+
+  // 手动刷新数据
+  const handleRefresh = async () => {
+    if (!user || !organization) return
+    
+    setRefreshing(true)
+    console.log('🔄 手动刷新数据，清除缓存')
+    
+    // 清除相关缓存
+    clearOrganizationCache(organization.id, user.id)
+    
+    // 强制重新加载数据
+    await loadDashboardData(true)
   }
 
   const handleCreateProject = async (projectName: string, description?: string) => {
@@ -207,8 +246,9 @@ export function Dashboard({ organization }: DashboardProps) {
         // 不抛出错误，项目已创建成功
       }
 
-      // 重新加载数据
-      await loadDashboardData()
+      // 清除缓存并重新加载数据
+      clearOrganizationCache(organization.id, user.id)
+      await loadDashboardData(true)
       setShowCreateProject(false)
       
     } catch (error: any) {
@@ -286,9 +326,10 @@ export function Dashboard({ organization }: DashboardProps) {
 
       console.log('✅ 项目删除成功！')
       
-      // 重新加载数据
+      // 清除缓存并重新加载数据
       console.log('🔄 开始重新加载数据...')
-      await loadDashboardData()
+      clearOrganizationCache(organization.id, user.id)
+      await loadDashboardData(true)
       console.log('🔄 数据重新加载完成')
       
     } catch (error) {
@@ -322,8 +363,9 @@ export function Dashboard({ organization }: DashboardProps) {
 
       console.log('✅ 描述更新成功！')
       
-      // 重新加载数据
-      await loadDashboardData()
+      // 清除缓存并重新加载数据
+      clearOrganizationCache(organization.id, user.id)
+      await loadDashboardData(true)
       setShowEditDescription(false)
       setEditingProject(null)
       
@@ -336,13 +378,9 @@ export function Dashboard({ organization }: DashboardProps) {
   }
 
   const handleProjectClick = (project: Project) => {
-    setSelectedProject(project)
-    setShowProjectDetail(true)
-  }
-
-  const handleBackToProjects = () => {
-    setShowProjectDetail(false)
-    setSelectedProject(null)
+    if (!organization) return
+    // 跳转到项目详情页面
+    navigate(generatePath.projectDetail(organization.id, project.id))
   }
 
   const handleTaskStatusChange = (taskId: string, newStatus: string) => {
@@ -371,8 +409,9 @@ export function Dashboard({ organization }: DashboardProps) {
 
       console.log('✅ 项目可见性切换成功！')
       
-      // 重新加载数据
-      await loadDashboardData()
+      // 清除缓存并重新加载数据
+      clearOrganizationCache(organization.id, user.id)
+      await loadDashboardData(true)
       
     } catch (error) {
       console.error('❌ 切换项目可见性失败:', error)
@@ -399,8 +438,9 @@ export function Dashboard({ organization }: DashboardProps) {
 
       console.log('✅ 项目招募状态切换成功！')
       
-      // 重新加载数据
-      await loadDashboardData()
+      // 清除缓存并重新加载数据
+      clearOrganizationCache(organization.id, user.id)
+      await loadDashboardData(true)
       
     } catch (error) {
       console.error('❌ 切换项目招募状态失败:', error)
@@ -459,12 +499,6 @@ export function Dashboard({ organization }: DashboardProps) {
     <div className="min-h-screen bg-secondary-50">
       {/* 主内容区 */}
       <div className="flex-1">
-          {showProjectDetail && selectedProject ? (
-            <ProjectDetailPage 
-              project={selectedProject}
-              onBack={handleBackToProjects}
-            />
-          ) : (
             <>
               {/* 页头 */}
               <div className="mb-8">
@@ -494,6 +528,15 @@ export function Dashboard({ organization }: DashboardProps) {
                 >
                   <MessageSquare className="h-4 w-4" />
                   与AI对话
+                </button>
+                <button 
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  className="btn-secondary flex items-center gap-2 disabled:opacity-50"
+                  title="刷新数据"
+                >
+                  <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+                  {refreshing ? '刷新中...' : '刷新'}
                 </button>
                 {!isOrganizationMember && (
                   <div className="text-sm text-secondary-500 italic px-3 py-2 bg-secondary-50 rounded-lg">
@@ -619,7 +662,6 @@ export function Dashboard({ organization }: DashboardProps) {
                 </div>
               </div>
             </>
-          )}
       </div>
 
       {/* AI聊天弹窗 */}

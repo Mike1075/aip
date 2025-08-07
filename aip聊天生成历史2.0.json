@@ -1,0 +1,556 @@
+{
+  "name": "aip聊天生成历史2.0",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 用户发信息后会触发，先判断webhook是否有项目信息然后分流（这能让用户不选中项目也可以聊天），然后AI会根据【组织智慧库】和【项目智慧库】和聊天记录进行回复，随后存入到聊天记录里。",
+        "height": 353,
+        "width": 693
+      },
+      "id": "ecf4292b-af6a-49dd-8872-bc26b7799592",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -368,
+        -272
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fd6b2fff-af4c-4013-8fb6-ada231750a5a",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        80
+      ],
+      "id": "1bf22bef-b71e-471c-af36-c6776d1b7b25",
+      "name": "Webhook",
+      "webhookId": "fd6b2fff-af4c-4013-8fb6-ada231750a5a"
+    },
+    {
+      "parameters": {
+        "tableId": "chat_history",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "content",
+              "fieldValue": "={{ $('1-Parse-Input-Parameters').item.json.chatInput }}"
+            },
+            {
+              "fieldId": "role",
+              "fieldValue": "user"
+            },
+            {
+              "fieldId": "agent_type",
+              "fieldValue": "project_agent"
+            },
+            {
+              "fieldId": "project_id",
+              "fieldValue": "={{ $('1-Parse-Input-Parameters').item.json.projectId }}"
+            },
+            {
+              "fieldId": "user_id",
+              "fieldValue": "={{ $('Code2').item.json.user_id }}"
+            },
+            {
+              "fieldId": "created_at",
+              "fieldValue": "={{ $now }}"
+            },
+            {
+              "fieldId": "ai_content",
+              "fieldValue": "={{ $('6-Final-AI-Answer').item.json.output }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1696,
+        16
+      ],
+      "id": "5cda9e18-4f21-4296-8e31-1e2dbe04b420",
+      "name": "Create a row",
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase aip"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 从Webhook的body中获取所有输入参数\nconst body = $json.body;\nconst chatInput = body.chatInput;\nconst userId = body.user_id;\nconst projectId = body.project_id; // 可能是字符串、数组或undefined\nconst organizationId = body.organization_id; // 可能是字符串或undefined\n\n// 返回一个干净的、包含所有参数的对象\nreturn [{\n  json: {\n    chatInput,\n    userId,\n    projectId,\n    organizationId\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -64,
+        80
+      ],
+      "id": "0fc52c76-72d8-4502-8827-64720b317d96",
+      "name": "1-Parse-Input-Parameters"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "21c79894-ce17-42c4-a65b-92f7c00cdfe3",
+              "leftValue": "={{ $json.organizationId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        128,
+        288
+      ],
+      "id": "fe0d74f8-ee59-44c2-820c-59a32111fe77",
+      "name": "2-Route-org"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "81cdd369-5613-4be3-899d-be90a93cd218",
+              "leftValue": "={{ !!($json.projectId && $json.organizationId) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        96,
+        0
+      ],
+      "id": "844366fc-c8b8-41fc-b262-e4f0b0fa0823",
+      "name": "2-Route-proj&org"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-pro",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1008,
+        224
+      ],
+      "id": "b559ee52-603d-495b-97c0-54679f1acd7f",
+      "name": "Google Gemini Chat Model3",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "hXeOePHRHihXfSwF",
+          "name": "Google Gemini(PaLM) Api account zfx"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "cd65715b-a8a5-4100-ae8d-6da0343d0a52",
+      "name": "Embeddings OpenAI4",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        384
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "yXdyERD64wM6mFi1",
+          "name": "OpenAi account Ethan"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## 问题：如何用组织id过滤？",
+        "width": 464
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        272,
+        320
+      ],
+      "id": "2901c69a-93dd-4323-a0d5-d4d69f98dcbf",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=参考知识:\n{{ $json.context }}\n\n---\n当前问题：\n{{ $json.chatInput }}",
+        "options": {
+          "systemMessage": "=你是一个高级AI项目管理助手。你的核心任务是整合并分析上文提供的[参考知识]，结合[历史对话]，以清晰、简练、说人话的方式回答用户的[当前问题]。\n\n## 执行步骤：\n1.判断[当前问题]需要调用哪些资料；\n2.判断[参考知识]的成分，如果[参考知识]同时包含[项目智慧库]和[组织智慧库]两部分内容，请将[组织智慧库]作为底色和大方向，再以[项目智慧库]为主体来准备回答问题；\n3.如果发现[项目智慧库]和[组织智慧库]与用户的[当前问题]不对应，那么可以不提及这两个智慧库的资料；\n4.调用“历史对话”工具获取对话记录，如果当前问题与历史记录关联不大则可以忽略前文；\n5.回答用户问题。"
+        }
+      },
+      "id": "b17948ab-50a1-491b-9cb9-04cc6f4192af",
+      "name": "6-Final-AI-Answer",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [
+        1088,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "aip",
+        "toolDescription": "Retreive the project_id in the documents to support question answering.",
+        "tableName": {
+          "__rl": true,
+          "value": "documents",
+          "mode": "list",
+          "cachedResultName": "documents"
+        },
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "filter",
+                "value": "={{ { \"project_id\": $json.filter_project_id } }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "88468907-295a-4ef5-9336-69105d43144c",
+      "name": "supabase vector search",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        240
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase aip"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\nlet context = \"## 参考知识：\\n\\n\";\n\n// 遍历所有上游节点返回的结果\nfor (const item of allItems) {\n  const data = item.json;\n\n  // 检查确保data.content和data.title字段都存在且内容不为空\n  if (data && data.content && data.content.trim() !== '' && data.title) {\n    // 使用从数据库中获取的title作为标签\n    context += `### [${data.title}]\\n${data.content}\\n\\n`;\n  }\n}\n\n// 从第一个节点（1-Parse-Input-Parameters）获取用户的原始输入和ID\nconst originalInputs = $('1-Parse-Input-Parameters').first().json;\n\n// 返回最终整合好的上下文\nreturn [{\n  json: {\n    context: context,\n    chatInput: originalInputs.chatInput,\n    user_id: originalInputs.userId\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        16
+      ],
+      "id": "262edc8d-8848-4e17-a713-2ea00e67e935",
+      "name": "Code2"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "chat_history",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "user_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.user_id }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabaseTool",
+      "typeVersion": 1,
+      "position": [
+        1424,
+        240
+      ],
+      "id": "edc57629-1909-4363-ae54-aed956b19e07",
+      "name": "get_chat_history",
+      "credentials": {
+        "supabaseApi": {
+          "id": "3Ip6b5mzk9YObmye",
+          "name": "Supabase aip"
+        }
+      },
+      "notes": "Retrieve the latest 20 chat history records sorted by creation time (newest first)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\nlet context = \"## 参考知识：\\n\\n\";\n\n// 遍历从Code2或其他上游节点接收到的所有数据项\nfor (const item of allItems) {\n  // 这里的 item 就是 Postgres 查询返回的数组，例如：\n  // [{\"content\": \"组织内容\", \"title\": \"组织智慧库\"}]\n  // 或者：\n  // [{\"content\": \"项目内容\", \"title\": \"项目智慧库\"}]\n\n  // 确保 item 是一个数组（因为Postgres查询返回的是数组）\n  if (Array.isArray(item)) {\n    // 遍历数组中的每一个数据对象\n    for (const data of item) {\n      // 确保content和title字段都存在且内容不为空\n      if (data && data.content && data.content.trim() !== '' && data.title) {\n        // 直接使用从数据库中获取的title作为标签\n        context += `### [${data.title}]\\n${data.content}\\n\\n`;\n      } else if (data && data.title) {\n        // 如果内容为空，提供一个提示\n        context += `### [${data.title}]\\n(此知识库内容为空，请在Supabase中补充)\\n\\n`;\n      }\n    }\n  }\n}\n\n// 从工作流最开始的节点，获取用户的原始输入和ID\nconst originalInputs = $('1-Parse-Input-Parameters').first().json;\n\n// 返回最终整合好的上下文\nreturn [{\n  json: {\n    context: context,\n    chatInput: originalInputs.chatInput,\n    user_id: originalInputs.userId\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        16
+      ],
+      "id": "b84e8bdc-2d64-4938-82b9-80432eb2e6a0",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT content, title\nFROM documents\nWHERE organization_id = $1\n  AND title = '组织智慧库';",
+        "options": {
+          "queryReplacement": "={{ $('1-Parse-Input-Parameters').item.json.organizationId }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        448,
+        0
+      ],
+      "id": "bfc52f8d-18ce-45da-ad50-1315a039c41b",
+      "name": "Execute a SQL query org",
+      "credentials": {
+        "postgres": {
+          "id": "Ods4cpHVbGmBPIu2",
+          "name": "aip Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT content, '项目智慧库' AS title\nFROM documents\nWHERE project_id = $1;",
+        "options": {
+          "queryReplacement": "={{ $('1-Parse-Input-Parameters').item.json.projectId }}"
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        416,
+        368
+      ],
+      "id": "b700d07e-404a-4411-8e16-aa18a3d2d32f",
+      "name": "Execute a SQL query pro",
+      "credentials": {
+        "postgres": {
+          "id": "Ods4cpHVbGmBPIu2",
+          "name": "aip Postgres"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "1-Parse-Input-Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2-Route-org": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query org",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute a SQL query pro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2-Route-proj&org": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query org",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute a SQL query pro",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "2-Route-org",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "1-Parse-Input-Parameters": {
+      "main": [
+        [
+          {
+            "node": "2-Route-proj&org",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model3": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "6-Final-AI-Answer",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings OpenAI4": {
+      "ai_embedding": [
+        [
+          {
+            "node": "supabase vector search",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "supabase vector search": {
+      "ai_tool": [
+        [
+          {
+            "node": "6-Final-AI-Answer",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "6-Final-AI-Answer": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code2": {
+      "main": [
+        [
+          {
+            "node": "6-Final-AI-Answer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_chat_history": {
+      "ai_tool": [
+        [
+          {
+            "node": "6-Final-AI-Answer",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Create a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query org": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query pro": {
+      "main": [
+        [
+          {
+            "node": "Code2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "44e3adfd-9216-4ef8-bc5f-a3256f5c5767",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1f778c37f32963d7908a07cd31451cf3b9dce1062b27726239599616e02e8a30"
+  },
+  "id": "AjIzVzmTx0pNmx9D",
+  "tags": []
+}

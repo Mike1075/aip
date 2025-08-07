@@ -201,7 +201,7 @@ export const organizationAPI = {
       .eq('user_id', userId)
     
     if (error) throw error
-    return data?.map(item => item.organizations).filter(Boolean) || []
+    return (data?.map(item => item.organizations as Organization).filter(Boolean) as Organization[]) || []
   },
 
   // 创建组织
@@ -575,6 +575,19 @@ export const organizationAPI = {
     return !!data
   },
 
+  // 检查用户是否为组织成员
+  async isOrganizationMember(organizationId: string, userId: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .from('user_organizations')
+      .select('organization_id')
+      .eq('organization_id', organizationId)
+      .eq('user_id', userId)
+      .single()
+    
+    if (error) return false
+    return !!data
+  },
+
   // 获取用户在项目中的角色
   async getUserProjectRole(projectId: string, userId: string): Promise<'manager' | 'developer' | 'tester' | 'designer' | null> {
     const { data, error } = await supabase
@@ -806,19 +819,65 @@ export const organizationAPI = {
   async createKnowledgeBaseForNewOrganization(organizationId: string, userId: string): Promise<void> {
     console.log('🏢 为新组织创建组织智慧库文档:', { organizationId, userId })
     
+    // 获取组织名称用于生成个性化内容
+    const { data: organization, error: orgError } = await supabase
+      .from('organizations')
+      .select('name, description')
+      .eq('id', organizationId)
+      .single()
+    
+    if (orgError) {
+      console.error('❌ 获取组织信息失败:', orgError)
+      throw orgError
+    }
+    
+    const knowledgeBaseContent = `# ${organization.name} 组织智慧库
+
+欢迎来到 **${organization.name}** 的组织智慧库！
+
+${organization.description ? `> ${organization.description}` : ''}
+
+这里是我们组织的知识中心，用于存储和分享重要信息。
+
+## 📚 主要用途
+- **组织制度和流程文档** - 规章制度、工作流程、标准操作程序
+- **项目经验和最佳实践** - 成功案例、经验教训、技术分享
+- **常见问题解答** - FAQ、问题解决方案、技术支持
+- **团队知识分享** - 培训材料、学习资源、技能分享
+- **重要决策记录** - 会议纪要、决策过程、政策变更
+
+## 🎯 使用指南
+1. **查看权限** - 所有成员都可以查看和使用这些知识
+2. **编辑权限** - 管理员可以编辑和维护内容
+3. **AI 支持** - 支持 AI 智能问答，快速查找信息
+4. **定期维护** - 请定期更新确保信息准确性
+
+## 🚀 快速开始
+- 点击编辑按钮开始添加您的第一份文档
+- 使用 Markdown 格式进行内容编写
+- 通过标签和分类来组织内容
+- 利用 AI 助手来快速查找和整理信息
+
+---
+
+*创建时间：${new Date().toLocaleString('zh-CN')}*
+*这是一个自动生成的组织智慧库模板，您可以根据需要自由修改和完善。*`
+    
     const { error } = await supabase
       .from('documents')
       .insert({
-        project_id: null, // 组织级文档不关联具体项目
-        user_id: userId,
-        organization_id: organizationId,
         title: '组织智慧库',
-        content: '', // 空的智慧库内容
+        content: knowledgeBaseContent,
         metadata: { 
           type: 'organization_knowledge_base',
-          description: '组织级别的知识库，用于存储组织相关的文档和信息'
+          description: '组织级别的知识库，用于存储组织相关的文档和信息',
+          template_version: '1.0',
+          auto_generated: true
         },
-        embedding: null
+        embedding: null,
+        project_id: null, // 组织级文档不关联具体项目
+        user_id: userId,
+        organization_id: organizationId
       })
     
     if (error) {
@@ -1085,5 +1144,188 @@ export const organizationAPI = {
     
     if (error) throw error
     return data || []
+  },
+
+  // ===== 聊天记录管理 API =====
+  
+  // 删除单条聊天记录
+  async deleteChatRecord(recordId: string): Promise<void> {
+    console.log('🗑️ 删除聊天记录:', recordId)
+    
+    const { error } = await supabase
+      .from('chat_history')
+      .delete()
+      .eq('id', recordId)
+    
+    if (error) {
+      console.error('❌ 删除聊天记录失败:', error)
+      throw error
+    }
+    
+    console.log('✅ 聊天记录删除成功')
+  },
+
+  // 清空用户消息内容（保留AI回复）
+  async clearUserMessage(userContent: string, timestamp: Date, userId: string): Promise<void> {
+    console.log('🗑️ 清空用户消息:', { userContent, timestamp, userId })
+    
+    // 查找匹配的聊天记录
+    const { data: records, error: findError } = await supabase
+      .from('chat_history')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('content', userContent)
+      .gte('created_at', new Date(timestamp.getTime() - 5000).toISOString())
+      .lte('created_at', new Date(timestamp.getTime() + 5000).toISOString())
+    
+    if (findError) {
+      console.error('❌ 查找聊天记录失败:', findError)
+      throw findError
+    }
+    
+    if (!records || records.length === 0) {
+      console.log('⚠️ 未找到匹配的聊天记录')
+      return
+    }
+    
+    // 清空用户消息内容并检查是否需要删除记录
+    for (const record of records) {
+      // 先检查AI回复是否为空
+      const aiContentEmpty = !record.ai_content || record.ai_content.trim() === ''
+      
+      if (aiContentEmpty) {
+        // 如果AI回复也为空，直接删除整条记录
+        await this.deleteChatRecord(record.id)
+        console.log('✅ 记录已完全删除（AI回复也为空）')
+      } else {
+        // 如果AI回复不为空，只清空用户消息
+        const { error: updateError } = await supabase
+          .from('chat_history')
+          .update({ content: '' })
+          .eq('id', record.id)
+        
+        if (updateError) {
+          console.error('❌ 清空用户消息失败:', updateError)
+          throw updateError
+        }
+        console.log('✅ 用户消息已清空，AI回复保留')
+      }
+    }
+    
+    console.log('✅ 用户消息清空操作完成')
+  },
+
+  // 清空AI回复内容（保留用户消息）- 改为通过时间戳范围查找
+  async clearAIMessage(originalUserContent: string, timestamp: Date, userId: string): Promise<void> {
+    console.log('🗑️ 清空AI回复:', { originalUserContent, timestamp, userId })
+    
+    // 通过时间戳范围查找聊天记录，不依赖content内容
+    const { data: records, error: findError } = await supabase
+      .from('chat_history')
+      .select('*')
+      .eq('user_id', userId)
+      .gte('created_at', new Date(timestamp.getTime() - 10000).toISOString()) // 扩大到前后10秒
+      .lte('created_at', new Date(timestamp.getTime() + 10000).toISOString())
+    
+    if (findError) {
+      console.error('❌ 查找聊天记录失败:', findError)
+      throw findError
+    }
+    
+    if (!records || records.length === 0) {
+      console.log('⚠️ 未找到匹配的聊天记录')
+      return
+    }
+    
+    console.log('🔍 找到的记录:', records.map(r => ({ 
+      id: r.id, 
+      content: r.content?.substring(0, 50) + '...', 
+      ai_content: r.ai_content?.substring(0, 50) + '...',
+      created_at: r.created_at 
+    })))
+    
+    // 清空AI回复内容并检查是否需要删除记录
+    for (const record of records) {
+      // 检查这条记录是否有AI回复内容
+      if (!record.ai_content || record.ai_content.trim() === '') {
+        console.log('⚠️ 记录中AI回复已为空，跳过:', record.id)
+        continue
+      }
+      
+      // 先检查用户消息是否为空
+      const userContentEmpty = !record.content || record.content.trim() === ''
+      
+      if (userContentEmpty) {
+        // 如果用户消息也为空，直接删除整条记录
+        await this.deleteChatRecord(record.id)
+        console.log('✅ 记录已完全删除（用户消息也为空）:', record.id)
+      } else {
+        // 如果用户消息不为空，只清空AI回复
+        const { error: updateError } = await supabase
+          .from('chat_history')
+          .update({ ai_content: '' })
+          .eq('id', record.id)
+        
+        if (updateError) {
+          console.error('❌ 清空AI回复失败:', updateError)
+          throw updateError
+        }
+        console.log('✅ AI回复已清空，用户消息保留:', record.id)
+      }
+    }
+    
+    console.log('✅ AI回复清空操作完成')
+  },
+
+  // 检查并删除空记录（当用户消息和AI回复都为空时）- 保留此方法以备其他地方使用
+  async checkAndDeleteEmptyRecord(recordId: string): Promise<void> {
+    const { data: record, error: getError } = await supabase
+      .from('chat_history')
+      .select('content, ai_content')
+      .eq('id', recordId)
+      .single()
+    
+    if (getError) {
+      console.error('❌ 获取记录失败:', getError)
+      return
+    }
+    
+    // 如果用户消息和AI回复都为空，删除整条记录
+    if ((!record.content || record.content.trim() === '') && 
+        (!record.ai_content || record.ai_content.trim() === '')) {
+      await this.deleteChatRecord(recordId)
+      console.log('✅ 空记录已删除')
+    }
+  },
+
+  // 根据用户消息内容和时间戳删除对应的AI回复（保留原方法以兼容）
+  async deleteChatPair(userContent: string, timestamp: Date, userId: string): Promise<void> {
+    console.log('🗑️ 删除聊天对话对:', { userContent, timestamp, userId })
+    
+    // 查找匹配的聊天记录（用户消息和AI回复通常在同一条记录中）
+    const { data: records, error: findError } = await supabase
+      .from('chat_history')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('content', userContent)
+      .gte('created_at', new Date(timestamp.getTime() - 5000).toISOString()) // 前后5秒范围
+      .lte('created_at', new Date(timestamp.getTime() + 5000).toISOString())
+    
+    if (findError) {
+      console.error('❌ 查找聊天记录失败:', findError)
+      throw findError
+    }
+    
+    if (!records || records.length === 0) {
+      console.log('⚠️ 未找到匹配的聊天记录')
+      return
+    }
+    
+    // 删除找到的记录
+    for (const record of records) {
+      await this.deleteChatRecord(record.id)
+    }
+    
+    console.log('✅ 聊天对话对删除成功')
   }
 }

@@ -3,6 +3,7 @@ import { ArrowLeft, Plus, Check, Trash2, ChevronDown, ChevronRight, Users, Calen
 import { Project, Task, supabase, organizationAPI } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { FileUpload } from './FileUpload'
+import { TeamAvatars } from './TeamAvatars'
 
 interface ProjectDetailPageProps {
   project: Project
@@ -292,8 +293,8 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
   
   const canAssignTask = (task: Task) => {
     if (effectiveReadOnly) return false
-    if (isProjectManager) return true // 项目经理可以分配所有任务
-    return task.created_by_id === user?.id // 任务创建者可以分配自己创建的任务
+    // 任何项目成员都可以分配任务给项目成员
+    return isProjectMember
   }
   
   const completedTasks = tasks.filter(task => task.status === 'completed').length
@@ -422,13 +423,14 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
             <h3 className={`font-semibold ${effectiveReadOnly ? 'text-secondary-600' : 'text-secondary-900'}`}>团队协作</h3>
           </div>
           <div className="space-y-3">
-            <button 
-              className={`w-full text-sm ${effectiveReadOnly ? 'btn-disabled' : 'btn-secondary'}`}
-              disabled={effectiveReadOnly}
-            >
-              <Users className="h-4 w-4 mr-2" />
-              {effectiveReadOnly ? '团队成员仅限成员查看' : '查看团队成员'}
-            </button>
+            {effectiveReadOnly ? (
+              <div className="text-xs text-secondary-500 text-center p-2">
+                团队成员仅限成员查看
+              </div>
+            ) : (
+              <TeamAvatars members={projectMembers} />
+            )}
+            
             {!effectiveReadOnly && (
               <button 
                 onClick={() => setShowFileUpload(true)}

@@ -10,10 +10,8 @@ export interface N8nChatResponse {
   error?: string
 }
 
-// n8n webhook配置
-const N8N_WEBHOOK_URL = import.meta.env.DEV 
-  ? '/api/n8n/webhook/1afe3c51-e81d-477b-b3e6-0686bc772534'  // 开发环境使用代理
-  : 'https://n8n.aifunbox.com/webhook/1afe3c51-e81d-477b-b3e6-0686bc772534'  // 生产环境直接调用
+// n8n webhook配置 - 直接使用n8n服务器地址
+const N8N_WEBHOOK_URL = 'https://n8n.aifunbox.com/webhook/fd6b2fff-af4c-4013-8fb6-ada231750a5a'
 
 // 用户项目接口
 export interface UserProject {
@@ -49,7 +47,8 @@ export interface ProjectDocument {
 
 export const callN8nRAGAgent = async (
   chatInput: string,
-  projectId: string | string[]
+  projectId?: string | string[],
+  organizationId?: string
 ): Promise<N8nChatResponse> => {
   try {
     // 获取当前用户ID
@@ -67,19 +66,34 @@ export const callN8nRAGAgent = async (
     console.log('🚀 调用n8n RAG Agent:', {
       chatInput,
       projectId,
+      organizationId,
       userId: user.id
     })
+
+    // 构建请求体
+    const requestBody: any = {
+      chatInput: chatInput,
+      user_id: user.id
+    }
+
+    // 如果有项目ID，添加到请求中
+    if (projectId) {
+      requestBody.project_id = projectId
+      console.log('📋 包含项目智慧库:', projectId)
+    }
+
+    // 如果有组织ID，添加到请求中
+    if (organizationId) {
+      requestBody.organization_id = organizationId
+      console.log('📋 包含组织智慧库:', organizationId)
+    }
 
     const response = await fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        chatInput: chatInput,
-        project_id: projectId,
-        user_id: user.id
-      })
+      body: JSON.stringify(requestBody)
     })
 
     if (!response.ok) {
@@ -122,7 +136,8 @@ export const callN8nRAGAgent = async (
 // 本地测试函数（使用localhost）
 export const callN8nRAGAgentLocal = async (
   chatInput: string,
-  projectId: string | string[]
+  projectId?: string | string[],
+  organizationId?: string
 ): Promise<N8nChatResponse> => {
   try {
     // 获取当前用户ID
@@ -140,8 +155,30 @@ export const callN8nRAGAgentLocal = async (
     console.log('🚀 调用本地n8n RAG Agent:', {
       chatInput,
       projectId,
+      organizationId,
       userId: user.id
     })
+
+    // 构建请求体
+    const requestBody: any = {
+      chatInput: chatInput,
+      user_id: user.id
+    }
+
+    // 如果有项目ID，添加到请求中
+    if (projectId) {
+      requestBody.project_id = projectId
+      console.log('📋 包含项目智慧库:', projectId)
+    }
+
+    // 如果有组织ID，添加到请求中
+    if (organizationId) {
+      requestBody.organization_id = organizationId
+      console.log('📋 包含组织智慧库:', organizationId)
+    }
+
+    console.log('📤 发送到n8n的完整请求体:', JSON.stringify(requestBody, null, 2))
+    console.log('🔗 请求URL:', N8N_WEBHOOK_URL)
 
     // 使用相同的webhook URL
     const response = await fetch(N8N_WEBHOOK_URL, {
@@ -149,12 +186,10 @@ export const callN8nRAGAgentLocal = async (
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        chatInput: chatInput,
-        project_id: projectId,
-        user_id: user.id
-      })
+      body: JSON.stringify(requestBody)
     })
+
+    console.log('📡 n8n响应状态:', response.status, response.statusText)
 
     if (!response.ok) {
       throw new Error(`本地n8n调用失败: ${response.status} ${response.statusText}`)
@@ -253,9 +288,8 @@ export const uploadDocumentToN8n = async (
       console.log(`  ${key}:`, value instanceof File ? `File(${value.name}, ${value.size}bytes)` : value)
     }
 
-    const uploadUrl = import.meta.env.DEV 
-      ? '/api/n8n/webhook/upload-document'  // 开发环境使用代理
-      : 'https://n8n.aifunbox.com/webhook/upload-document'  // 生产环境直接调用
+    // 使用直接的n8n webhook地址（如果有文档上传的webhook的话）
+    const uploadUrl = 'https://n8n.aifunbox.com/webhook/upload-document'
 
     const response = await fetch(uploadUrl, {
       method: 'POST',
