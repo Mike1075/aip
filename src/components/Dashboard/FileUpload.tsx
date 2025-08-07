@@ -81,23 +81,24 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
     'text/markdown'  // 添加 Markdown 支持
   ]
 
-  const getFileIcon = (file: File) => {
-    // 检查文件扩展名来识别Markdown文件
-    const fileName = file.name.toLowerCase()
+  const getFileIcon = (file: File | { type?: string; name?: string }) => {
+    // 安全地检查文件扩展名来识别Markdown文件
+    const fileName = file.name?.toLowerCase() || ''
+    const fileType = file.type || ''
     const isMarkdown = fileName.endsWith('.md') || fileName.endsWith('.markdown')
     
-    if (file.type.startsWith('image/')) return '🖼️'
-    if (file.type === 'application/pdf') return '📄'
-    if (file.type.includes('word')) return '📝'
+    if (fileType.startsWith('image/')) return '🖼️'
+    if (fileType === 'application/pdf') return '📄'
+    if (fileType.includes('word')) return '📝'
     if (isMarkdown) return '📋'  // 通过文件扩展名识别Markdown
-    if (file.type === 'text/plain') return '📰'
-    if (file.type === 'text/markdown') return '📋'  // MIME类型识别Markdown
+    if (fileType === 'text/plain') return '📰'
+    if (fileType === 'text/markdown') return '📋'  // MIME类型识别Markdown
     return '📁'
   }
 
   const validateFile = (file: File) => {
     // 检查文件扩展名，因为浏览器对.md文件的MIME类型识别不一致
-    const fileName = file.name.toLowerCase()
+    const fileName = file.name?.toLowerCase() || ''
     const isMarkdown = fileName.endsWith('.md') || fileName.endsWith('.markdown')
     
     if (!acceptedTypes.includes(file.type) && !isMarkdown) {
@@ -106,7 +107,7 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
     if (file.size > 50 * 1024 * 1024) { // 50MB
       return '文件大小不能超过50MB'
     }
-    return null
+    return undefined
   }
 
   const handleFiles = useCallback((files: FileList) => {
