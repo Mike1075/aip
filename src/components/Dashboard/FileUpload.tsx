@@ -82,16 +82,25 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
   ]
 
   const getFileIcon = (file: File) => {
+    // 检查文件扩展名来识别Markdown文件
+    const fileName = file.name.toLowerCase()
+    const isMarkdown = fileName.endsWith('.md') || fileName.endsWith('.markdown')
+    
     if (file.type.startsWith('image/')) return '🖼️'
     if (file.type === 'application/pdf') return '📄'
     if (file.type.includes('word')) return '📝'
+    if (isMarkdown) return '📋'  // 通过文件扩展名识别Markdown
     if (file.type === 'text/plain') return '📰'
-    if (file.type === 'text/markdown') return '📋'  // Markdown 文件图标
+    if (file.type === 'text/markdown') return '📋'  // MIME类型识别Markdown
     return '📁'
   }
 
   const validateFile = (file: File) => {
-    if (!acceptedTypes.includes(file.type)) {
+    // 检查文件扩展名，因为浏览器对.md文件的MIME类型识别不一致
+    const fileName = file.name.toLowerCase()
+    const isMarkdown = fileName.endsWith('.md') || fileName.endsWith('.markdown')
+    
+    if (!acceptedTypes.includes(file.type) && !isMarkdown) {
       return '不支持的文件类型。请上传PDF、图片、Word文档、文本文件或Markdown文件。'
     }
     if (file.size > 50 * 1024 * 1024) { // 50MB
