@@ -77,7 +77,8 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
     'image/gif',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain'
+    'text/plain',
+    'text/markdown'  // 添加 Markdown 支持
   ]
 
   const getFileIcon = (file: File) => {
@@ -85,12 +86,13 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
     if (file.type === 'application/pdf') return '📄'
     if (file.type.includes('word')) return '📝'
     if (file.type === 'text/plain') return '📰'
+    if (file.type === 'text/markdown') return '📋'  // Markdown 文件图标
     return '📁'
   }
 
   const validateFile = (file: File) => {
     if (!acceptedTypes.includes(file.type)) {
-      return '不支持的文件类型。请上传PDF、图片、Word文档或文本文件。'
+      return '不支持的文件类型。请上传PDF、图片、Word文档、文本文件或Markdown文件。'
     }
     if (file.size > 50 * 1024 * 1024) { // 50MB
       return '文件大小不能超过50MB'
@@ -374,12 +376,12 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
               拖拽文件到此处或点击选择
             </h3>
             <p className="text-sm text-secondary-500 mb-4">
-              支持 PDF、图片、Word文档、文本文件 (最大50MB)
+              支持 PDF、图片、Word文档、文本文件、Markdown文件 (最大50MB)
             </p>
             <input
               type="file"
               multiple
-              accept=".pdf,.jpg,.jpeg,.png,.gif,.doc,.docx,.txt"
+              accept=".pdf,.jpg,.jpeg,.png,.gif,.doc,.docx,.txt,.md"
               onChange={onFileSelect}
               className="hidden"
               id="file-input"
