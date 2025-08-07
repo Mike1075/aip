@@ -281,6 +281,17 @@ export const uploadDocumentToN8n = async (
     formData.append('project_id', projectId)
     formData.append('user_id', userId)
     formData.append('title', title)
+    
+    // 对于Markdown文件，额外发送文件内容
+    if (file.name.toLowerCase().endsWith('.md') || file.name.toLowerCase().endsWith('.markdown')) {
+      try {
+        const fileContent = await file.text()
+        formData.append('markdown_content', fileContent)
+        console.log('📋 添加Markdown内容到FormData，长度:', fileContent.length)
+      } catch (error) {
+        console.error('❌ 读取Markdown文件内容失败:', error)
+      }
+    }
 
     // 验证FormData内容
     console.log('📁 FormData检查:')
