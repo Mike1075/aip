@@ -715,10 +715,11 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
         </div>
       )}
 
-      {/* 浮动聊天机器人 - 显示项目选择器，传递项目组织信息 */}
+      {/* 浮动聊天机器人 - 传递当前项目和组织信息，隐藏项目选择器 */}
       <FloatingChatBot 
         organization={projectOrganization} 
-        showProjectSelector={true} 
+        currentProject={project}
+        showProjectSelector={false}
       />
     </div>
   )

@@ -384,170 +384,74 @@ export function InteractionLog({ onClose, onUnreadCountChange }: InteractionLogP
   const handleDeleteInteraction = async (interaction: UnifiedInteraction) => {
     if (!user) return
     
-    // 确认删除
-    if (!confirm('确定要删除这条消息吗？此操作无法撤销。')) {
-      return
-    }
-    
     try {
       console.log('🗑️ 开始删除消息:', interaction)
       
       // 根据交互类型删除
       if (interaction.type === 'notification') {
         console.log('🔔 删除通知，ID:', interaction.id)
-        // 删除通知
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('notifications')
           .delete()
           .eq('id', interaction.id)
-          .select()
-        
-        console.log('🔔 删除通知结果:', { data, error })
         if (error) throw error
-        
       } else if (interaction.type === 'organization') {
         console.log('🏢 删除组织申请，ID:', interaction.id)
-        // 删除组织申请记录
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('organization_join_requests')
           .delete()
           .eq('id', interaction.id)
-          .select()
-        
-        console.log('🏢 删除组织申请结果:', { data, error })
         if (error) throw error
-        
       } else if (interaction.type === 'project') {
         console.log('📁 删除项目申请，ID:', interaction.id)
-        // 删除项目申请记录
-        const { data, error } = await supabase
+        const { error } = await supabase
           .from('project_join_requests')
           .delete()
           .eq('id', interaction.id)
-          .select()
-        
-        console.log('📁 删除项目申请结果:', { data, error })
         if (error) throw error
       }
       
       console.log('✅ 数据库删除成功，更新本地状态')
-      
-      // 从本地状态中移除
-      setInteractions(prev => prev.filter(item => item.id !== interaction.id))
-      
-      // 通知父组件刷新未读计数
-      if (onUnreadCountChange) {
-        onUnreadCountChange()
-      }
-      
-      console.log('✅ 删除完成')
-      alert('消息已删除')
     } catch (error: any) {
-      console.error('❌ 删除消息失败:', error)
-      console.error('❌ 错误详情:', error.message, error.details, error.hint)
-      alert(`删除失败：${error.message || '请重试'}`)
+      // 如果后端删除失败（例如记录不存在），仍从前端移除
+      console.warn('⚠️ 后端删除失败，仍移除前端项:', error?.message)
+    } finally {
+      setInteractions(prev => prev.filter(item => item.id !== interaction.id))
+      onUnreadCountChange?.()
     }
   }
 
-  // 一键清空已完成的消息
+  // 一键清空已完成的消息（无确认弹窗）
   const handleClearCompleted = async () => {
     if (!user) return
-    
-    // 获取可以删除的消息
     const deletableInteractions = interactions.filter(canDelete)
-    
-    if (deletableInteractions.length === 0) {
-      alert('没有可清空的消息')
-      return
-    }
-    
-    // 确认清空
-    if (!confirm(`确定要清空 ${deletableInteractions.length} 条已完成的消息吗？此操作无法撤销。\n\n将保留所有待处理的申请和请求。`)) {
-      return
-    }
-    
+    if (deletableInteractions.length === 0) return
+
     try {
-      console.log('🧹 开始批量清空消息:', deletableInteractions)
-      
-      let successCount = 0
-      let errorCount = 0
-      
-      // 分类处理不同类型的消息
+      console.log('🧹 开始批量清空消息:', deletableInteractions.length)
       const notifications = deletableInteractions.filter(i => i.type === 'notification')
       const orgRequests = deletableInteractions.filter(i => i.type === 'organization')
       const projectRequests = deletableInteractions.filter(i => i.type === 'project')
-      
-      // 批量删除通知
+
       if (notifications.length > 0) {
-        console.log('🔔 批量删除通知:', notifications.length, '条')
         const notificationIds = notifications.map(n => n.id)
-        const { error } = await supabase
-          .from('notifications')
-          .delete()
-          .in('id', notificationIds)
-        
-        if (error) {
-          console.error('❌ 删除通知失败:', error)
-          errorCount += notifications.length
-        } else {
-          successCount += notifications.length
-        }
+        await supabase.from('notifications').delete().in('id', notificationIds)
       }
-      
-      // 批量删除组织申请
       if (orgRequests.length > 0) {
-        console.log('🏢 批量删除组织申请:', orgRequests.length, '条')
         const orgRequestIds = orgRequests.map(r => r.id)
-        const { error } = await supabase
-          .from('organization_join_requests')
-          .delete()
-          .in('id', orgRequestIds)
-        
-        if (error) {
-          console.error('❌ 删除组织申请失败:', error)
-          errorCount += orgRequests.length
-        } else {
-          successCount += orgRequests.length
-        }
+        await supabase.from('organization_join_requests').delete().in('id', orgRequestIds)
       }
-      
-      // 批量删除项目申请
       if (projectRequests.length > 0) {
-        console.log('📁 批量删除项目申请:', projectRequests.length, '条')
         const projectRequestIds = projectRequests.map(r => r.id)
-        const { error } = await supabase
-          .from('project_join_requests')
-          .delete()
-          .in('id', projectRequestIds)
-        
-        if (error) {
-          console.error('❌ 删除项目申请失败:', error)
-          errorCount += projectRequests.length
-        } else {
-          successCount += projectRequests.length
-        }
+        await supabase.from('project_join_requests').delete().in('id', projectRequestIds)
       }
-      
-      // 更新本地状态 - 移除已删除的消息
-      const deletedIds = new Set(deletableInteractions.map(i => i.id))
-      setInteractions(prev => prev.filter(item => !deletedIds.has(item.id)))
-      
-      // 通知父组件刷新未读计数
-      if (onUnreadCountChange) {
-        onUnreadCountChange()
-      }
-      
-      console.log('✅ 批量清空完成')
-      
-      if (errorCount > 0) {
-        alert(`清空完成！成功删除 ${successCount} 条消息，${errorCount} 条消息删除失败。`)
-      } else {
-        alert(`清空完成！成功删除 ${successCount} 条消息。`)
-      }
-      
-    } catch (error: any) {
-      console.error('❌ 批量清空失败:', error)
-      alert(`清空失败：${error.message || '请重试'}`)
+    } catch (e) {
+      console.warn('⚠️ 批量清空存在部分失败：', e)
+    } finally {
+      // 前端直接过滤掉
+      const deletableIds = new Set(deletableInteractions.map(i => i.id))
+      setInteractions(prev => prev.filter(i => !deletableIds.has(i.id)))
+      onUnreadCountChange?.()
     }
   }
 

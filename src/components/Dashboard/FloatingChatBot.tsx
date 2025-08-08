@@ -1,14 +1,15 @@
 import React, { useState } from 'react'
 import { Bot, X } from 'lucide-react'
 import { AIChat } from './AIChat'
-import { Organization } from '@/lib/supabase'
+import { Organization, Project } from '@/lib/supabase'
 
 interface FloatingChatBotProps {
   organization?: Organization
+  currentProject?: Project  // 新增：当前项目参数
   showProjectSelector?: boolean
 }
 
-export function FloatingChatBot({ organization, showProjectSelector = true }: FloatingChatBotProps) {
+export function FloatingChatBot({ organization, currentProject, showProjectSelector = true }: FloatingChatBotProps) {
   const [isOpen, setIsOpen] = useState(false)
 
   return (
@@ -36,6 +37,7 @@ export function FloatingChatBot({ organization, showProjectSelector = true }: Fl
           <AIChat 
             onClose={() => setIsOpen(false)}
             organization={organization}
+            currentProject={currentProject}
             showProjectSelector={showProjectSelector}
           />
         </div>

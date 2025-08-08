@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react'
-import { X, Send, Bot, User, ChevronDown, ChevronUp, Trash2, RotateCcw } from 'lucide-react'
+import { X, Send, Bot, User, Trash2, Check } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ProjectSelector } from './ProjectSelector'
-import { OrganizationSelector } from './OrganizationSelector'
-import { callN8nRAGAgent, callN8nRAGAgentLocal, getChatRecords, saveChatRecord, deleteChatMessage } from '../../lib/n8n'
-import { Organization, organizationAPI } from '@/lib/supabase'
+import { callN8nRAGAgent, callN8nRAGAgentLocal, getChatRecords, saveChatRecord, deleteChatMessage, getUserProjects, UserProject } from '../../lib/n8n'
+import { Organization, Project } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface AIChatProps {
   onClose: () => void
   organization?: Organization
+  currentProject?: Project  // 新增：当前项目参数
   showProjectSelector?: boolean
 }
 
@@ -21,7 +20,7 @@ interface ChatMessage {
   timestamp: Date
 }
 
-export function AIChat({ onClose, organization, showProjectSelector = true }: AIChatProps) {
+export function AIChat({ onClose, organization, currentProject, showProjectSelector = true }: AIChatProps) {
   const { user } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
@@ -31,6 +30,42 @@ export function AIChat({ onClose, organization, showProjectSelector = true }: AI
   const [isProjectSelectorExpanded, setIsProjectSelectorExpanded] = useState(false)
   const [isOrganizationSelectorExpanded, setIsOrganizationSelectorExpanded] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const [showContextPanel, setShowContextPanel] = useState(true) // 新增：侧边上下文面板
+  const [userProjects, setUserProjects] = useState<UserProject[]>([])
+  const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(false)
+
+  // 初始化时自动预选当前项目和组织
+  useEffect(() => {
+    if (currentProject) {
+      setSelectedProjects([currentProject.id])
+      console.log('🎯 自动预选当前项目:', currentProject.name, currentProject.id)
+    }
+    
+    if (organization) {
+      setSelectedOrganizations([organization.id])
+      console.log('🏢 自动预选当前组织:', organization.name, organization.id)
+    }
+  }, [currentProject, organization])
+
+  // 加载用户的全部项目（可结合组织上下文定制，这里按“所有自己的项目”，如有组织上下文则过滤该组织）
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setIsLoadingProjects(true)
+        const projects = await getUserProjects()
+        // 如果存在组织上下文（来自项目详情页或组织页），只显示该组织下的项目
+        const filtered = organization?.id
+          ? projects.filter(p => p.organization_id === organization.id)
+          : projects
+        setUserProjects(filtered)
+      } catch (err) {
+        console.error('加载用户项目失败:', err)
+      } finally {
+        setIsLoadingProjects(false)
+      }
+    }
+    load()
+  }, [user?.id, organization?.id])
 
   // 获取清空点时间戳
   const getClearTimestamp = (): string | null => {
@@ -142,10 +177,21 @@ export function AIChat({ onClose, organization, showProjectSelector = true }: AI
       console.log('🔄 刷新聊天历史...')
       const records = await getChatRecords(20)
       
+      // 根据当前上下文生成智能欢迎消息
+      let welcomeContent = '您好！我是您的AI项目管理助手。我可以帮您回答问题、分析项目进度、分配任务等。'
+      
+      if (currentProject && organization) {
+        welcomeContent = `您好！我是您的AI项目管理助手。当前已为您选择了项目「${currentProject.name}」（${organization.name}组织）。您可以直接询问该项目的相关问题，如进度、任务、文档等。`
+      } else if (organization) {
+        welcomeContent = `您好！我是您的AI项目管理助手。当前已为您选择了「${organization.name}」组织。您可以询问该组织的相关问题，也可以选择特定项目进行更精准的查询。`
+      } else {
+        welcomeContent = '您好！我是您的AI项目管理助手。我可以帮您回答问题、分析项目进度、分配任务等。您可以直接开始对话，也可以选择特定项目进行更精准的查询。'
+      }
+
       const welcomeMessage: ChatMessage = {
         id: 'welcome',
         role: 'assistant',
-        content: '您好！我是您的AI项目管理助手。我可以帮您回答问题、分析项目进度、分配任务等。您可以直接开始对话，也可以选择特定项目进行更精准的查询。',
+        content: welcomeContent,
         timestamp: new Date()
       }
       
@@ -320,25 +366,25 @@ export function AIChat({ onClose, organization, showProjectSelector = true }: AI
     setIsLoading(true)
 
     try {
-      // 根据选择情况决定传递的参数
+      // 根据选择情况决定传递的参数（仅限当前组织）
       let projectId: string | string[] | undefined = undefined
       if (selectedProjects.length > 0) {
-        projectId = selectedProjects.length === 1 ? selectedProjects[0] : selectedProjects
+        // 过滤掉不属于当前组织的项目（安全兜底）
+        const allowed = organization?.id
+          ? selectedProjects.filter(id => userProjects.find(p => p.id === id && p.organization_id === organization.id))
+          : selectedProjects
+        if (allowed.length > 0) {
+          projectId = allowed.length === 1 ? allowed[0] : allowed
+        }
       }
-      
-      // 确定组织ID - 优先使用选择的组织，其次使用当前组织上下文
-      let organizationId = ""
-      if (selectedOrganizations.length > 0) {
-        organizationId = selectedOrganizations.length === 1 ? selectedOrganizations[0] : selectedOrganizations.join(',')
-      } else if (organization?.id) {
-        organizationId = organization.id
-      }
-      
-      // 调用n8n RAG系统 - 确保传递空字符串而不是undefined
+
+      // 组织ID：强制使用当前组织上下文，禁止跨组织
+      const organizationId = organization?.id || ''
+
       const result = await callN8nRAGAgentLocal(
-        input.trim(), 
-        projectId, 
-        organizationId // 传递组织ID或空字符串
+        input.trim(),
+        projectId,
+        organizationId
       )
 
       // 清理AI回复中的转义字符
@@ -389,215 +435,260 @@ export function AIChat({ onClose, organization, showProjectSelector = true }: AI
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl h-[600px] flex flex-col mx-4">
-        {/* 头部 */}
-        <div className="flex items-center justify-between p-4 border-b border-secondary-200">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-primary-100 rounded-lg">
-              <Bot className="h-5 w-5 text-primary-600" />
-            </div>
-            <div>
-              <h3 className="font-medium text-secondary-900">AI项目助手</h3>
-              <p className="text-sm text-secondary-500">智能项目管理顾问</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleClearSession}
-              className="p-2 hover:bg-secondary-100 rounded-lg transition-colors group"
-              title="清空聊天记录"
-            >
-              <Trash2 className="h-4 w-4 text-secondary-500 group-hover:text-red-500" />
-            </button>
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-secondary-100 rounded-lg transition-colors"
-            >
-              <X className="h-5 w-5 text-secondary-600" />
-            </button>
-          </div>
-        </div>
-
-        {/* 聊天消息区域 */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {isLoadingHistory ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="flex items-center gap-2 text-secondary-500">
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary-500 border-t-transparent"></div>
-                <span>加载中...</span>
-              </div>
-            </div>
-          ) : (
-            <>
-              
-              {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`group flex items-start gap-3 ${
-                message.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              {message.role === 'assistant' && (
-                <div className="p-2 bg-primary-100 rounded-lg">
-                  <Bot className="h-5 w-5 text-primary-600" />
-                </div>
-              )}
-              
-              <div className="flex items-start gap-2">
-                <div
-                  className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                    message.role === 'user'
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-secondary-100 text-secondary-900'
-                  }`}
-                >
-                  {message.role === 'assistant' ? (
-                    <div className="text-sm prose prose-sm max-w-none prose-headings:text-secondary-900 prose-p:text-secondary-900 prose-strong:text-secondary-900 prose-code:text-secondary-800 prose-code:bg-secondary-200 prose-code:px-1 prose-code:rounded prose-pre:bg-secondary-200 prose-pre:text-secondary-900">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {message.content}
-                      </ReactMarkdown>
-                    </div>
-                  ) : (
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                  )}
-                </div>
-                
-                {/* 删除按钮 - 只在hover时显示，双击删除 */}
-                {message.id !== 'welcome' && (
-                  <div className="relative">
-                    <button
-                      onDoubleClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        console.log('🖱️ 双击删除按钮:', { messageId: message.id, message })
-                        handleDeleteMessage(message.id, message)
-                      }}
-                      onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        console.log('🖱️ 单击删除按钮:', message.id)
-                      }}
-                      className={`opacity-30 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-100 peer cursor-pointer ${
-                        message.role === 'user' ? 'order-first' : ''
-                      }`}
-                      title="双击删除此消息"
-                    >
-                      <X className="h-3 w-3 text-red-500 hover:text-red-700" />
-                    </button>
-                    {/* 立即显示的提示框 */}
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-800 text-white text-xs rounded whitespace-nowrap opacity-0 peer-hover:opacity-100 transition-opacity duration-0 pointer-events-none z-10">
-                      双击删除
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {message.role === 'user' && (
-                <div className="p-2 bg-secondary-200 rounded-lg">
-                  <User className="h-4 w-4 text-secondary-600" />
-                </div>
-              )}
-            </div>
-          ))}
-            </>
-          )}
-          
-          {isLoading && (
-            <div className="flex items-start gap-3">
+      {/* 使用并排布局：左侧聊天窗 + 右侧上下文面板 */}
+      <div className="flex items-start gap-4 mx-4 max-w-[1320px] w-full">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-[960px] h-[600px] flex flex-col">
+          {/* 头部 */}
+          <div className="flex items-center justify-between p-4 border-b border-secondary-200">
+            <div className="flex items-center gap-3">
               <div className="p-2 bg-primary-100 rounded-lg">
                 <Bot className="h-5 w-5 text-primary-600" />
               </div>
-              <div className="bg-secondary-100 px-4 py-2 rounded-lg">
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce"></div>
-                  <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                  <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                </div>
+              <div>
+                <h3 className="font-medium text-secondary-900">AI项目助手</h3>
+                <p className="text-sm text-secondary-500">智能项目管理顾问</p>
               </div>
             </div>
-          )}
-        </div>
-
-        {/* 输入区域 */}
-        <div className="p-4 border-t border-secondary-200">
-          {/* 可折叠组织选择器 - 只在没有项目选择器或没有组织上下文时显示 */}
-          {!showProjectSelector && (
-            <div className="mb-3">
+            <div className="flex items-center gap-2">
               <button
-                onClick={() => setIsOrganizationSelectorExpanded(!isOrganizationSelectorExpanded)}
-                className="flex items-center justify-between w-full p-2 bg-secondary-50 hover:bg-secondary-100 rounded-lg transition-colors text-sm"
+                onClick={handleClearSession}
+                className="p-2 hover:bg-secondary-100 rounded-lg transition-colors group"
+                title="清空聊天记录"
               >
-                <span className="font-medium text-secondary-700">
-                  选择组织 (可选) {selectedOrganizations.length > 0 && `- ${selectedOrganizations.length}个已选择`}
-                </span>
-                {isOrganizationSelectorExpanded ? (
-                  <ChevronUp className="h-4 w-4 text-secondary-500" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-secondary-500" />
-                )}
+                <Trash2 className="h-4 w-4 text-secondary-500 group-hover:text-red-500" />
               </button>
-              
-              {isOrganizationSelectorExpanded && (
-                <div className="mt-2">
-                  <OrganizationSelector
-                    selectedOrganizations={selectedOrganizations}
-                    onOrganizationsChange={setSelectedOrganizations}
-                    currentOrganization={organization}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 可折叠项目选择器 - 只在showProjectSelector为true时显示 */}
-          {showProjectSelector && (
-            <div className="mb-3">
               <button
-                onClick={() => setIsProjectSelectorExpanded(!isProjectSelectorExpanded)}
-                className="flex items-center justify-between w-full p-2 bg-secondary-50 hover:bg-secondary-100 rounded-lg transition-colors text-sm"
+                onClick={onClose}
+                className="p-2 hover:bg-secondary-100 rounded-lg transition-colors"
               >
-                <span className="font-medium text-secondary-700">
-                  选择项目 (可选) {selectedProjects.length > 0 && `- ${selectedProjects.length}个已选择`}
-                </span>
-                {isProjectSelectorExpanded ? (
-                  <ChevronUp className="h-4 w-4 text-secondary-500" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-secondary-500" />
-                )}
+                <X className="h-5 w-5 text-secondary-600" />
               </button>
-              
-              {isProjectSelectorExpanded && (
-                <div className="mt-2">
-                  <ProjectSelector
-                    selectedProjects={selectedProjects}
-                    onProjectsChange={setSelectedProjects}
-                    organization={organization}
-                  />
+            </div>
+          </div>
+
+          {/* 聊天消息区域 */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {isLoadingHistory ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="flex items-center gap-2 text-secondary-500">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary-500 border-t-transparent"></div>
+                  <span>加载中...</span>
                 </div>
-              )}
+              </div>
+            ) : (
+              <>
+                {/* 聊天消息列表 */}
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`group flex items-start gap-3 ${
+                      message.role === 'user' ? 'justify-end' : 'justify-start'
+                    }`}
+                  >
+                    {message.role === 'assistant' && (
+                      <div className="p-2 bg-primary-100 rounded-lg">
+                        <Bot className="h-5 w-5 text-primary-600" />
+                      </div>
+                    )}
+                    <div className="flex items-start gap-2">
+                      <div
+                        className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                          message.role === 'user'
+                            ? 'bg-primary-600 text-white'
+                            : 'bg-secondary-100 text-secondary-900'
+                        }`}
+                      >
+                        {message.role === 'assistant' ? (
+                          <div className="text-sm prose prose-sm max-w-none prose-headings:text-secondary-900 prose-p:text-secondary-900 prose-strong:text-secondary-900 prose-code:text-secondary-800 prose-code:bg-secondary-200 prose-code:px-1 prose-code:rounded prose-pre:bg-secondary-200 prose-pre:text-secondary-900">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                              {message.content}
+                            </ReactMarkdown>
+                          </div>
+                        ) : (
+                          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                        )}
+                      </div>
+                      {/* 删除按钮 */}
+                      {message.id !== 'welcome' && (
+                        <div className="relative">
+                          <button
+                            onDoubleClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              handleDeleteMessage(message.id, message)
+                            }}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                            }}
+                            className={`opacity-30 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-100 peer cursor-pointer ${
+                              message.role === 'user' ? 'order-first' : ''
+                            }`}
+                            title="双击删除此消息"
+                          >
+                            <X className="h-3 w-3 text-red-500 hover:text-red-700" />
+                          </button>
+                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-800 text-white text-xs rounded whitespace-nowrap opacity-0 peer-hover:opacity-100 transition-opacity duration-0 pointer-events-none z-10">
+                            双击删除
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {message.role === 'user' && (
+                      <div className="p-2 bg-secondary-200 rounded-lg">
+                        <User className="h-4 w-4 text-secondary-600" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </>
+            )}
+
+            {isLoading && (
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-primary-100 rounded-lg">
+                  <Bot className="h-5 w-5 text-primary-600" />
+                </div>
+                <div className="bg-secondary-100 px-4 py-2 rounded-lg">
+                  <div className="flex gap-1">
+                    <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                    <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 输入区域 */}
+          <div className="p-4 border-t border-secondary-200">
+            {/* 当前项目上下文提示 */}
+            {currentProject && organization && (
+              <div className="mb-3 p-3 bg-primary-50 border border-primary-200 rounded-lg">
+                <div className="flex items-center gap-2 text-sm">
+                  <div className="w-2 h-2 bg-primary-500 rounded-full"></div>
+                  <span className="text-primary-700">
+                    <strong>当前上下文：</strong>项目「{currentProject.name}」（{organization.name}）
+                  </span>
+                  <button
+                    onClick={() => {
+                      setSelectedProjects([])
+                      setSelectedOrganizations([])
+                    }}
+                    className="ml-auto text-xs text-primary-600 hover:text-primary-800 underline"
+                    title="点击切换到全局模式"
+                  >
+                    切换模式
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-end gap-3">
+              <div className="flex-1">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="请输入您的问题..."
+                  className="input resize-none"
+                  rows={2}
+                />
+              </div>
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || isLoading}
+                className="btn-primary p-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="发送"
+              >
+                <Send className="h-5 w-5" />
+              </button>
             </div>
-          )}
-          
-          <div className="flex items-end gap-3">
-            <div className="flex-1">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="请输入您的问题..."
-                className="input resize-none"
-                rows={2}
-              />
-            </div>
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isLoading}
-              className="btn-primary p-3 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Send className="h-4 w-4" />
-            </button>
           </div>
         </div>
+
+        {/* 侧边上下文面板：简约长条项目列表 + 滑块 */}
+        {showContextPanel && (
+          <div className="bg-white rounded-xl shadow-xl w-[360px] min-w-[360px] h-[600px] p-4 border border-secondary-200 flex flex-col flex-shrink-0">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-semibold text-secondary-900">我的项目</h4>
+              <label className="inline-flex items-center cursor-pointer select-none text-xs text-secondary-600">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={selectedProjects.length === userProjects.length && userProjects.length > 0}
+                  onChange={() => {
+                    if (selectedProjects.length === userProjects.length) {
+                      setSelectedProjects([])
+                    } else {
+                      setSelectedProjects(userProjects.map(p => p.id))
+                    }
+                  }}
+                />
+                <span className="mr-2">全选</span>
+                <span className="w-10 h-5 bg-secondary-200 rounded-full peer-checked:bg-primary-600 relative transition-colors">
+                  <span className="absolute left-0 top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all peer-checked:left-6" />
+                </span>
+              </label>
+            </div>
+
+            <div className="flex-1 overflow-y-auto rounded-md border border-secondary-200">
+              {isLoadingProjects ? (
+                <div className="p-3 text-sm text-secondary-600">加载项目中...</div>
+              ) : userProjects.length === 0 ? (
+                <div className="p-3 text-sm text-secondary-600">暂无项目</div>
+              ) : (
+                // 按组织分组
+                (() => {
+                  const groups = new Map<string, { name?: string; items: typeof userProjects }>()
+                  for (const p of userProjects) {
+                    const key = p.organization_id || 'unknown'
+                    if (!groups.has(key)) groups.set(key, { name: p.organization_name, items: [] as any })
+                    groups.get(key)!.items.push(p)
+                  }
+
+                  const selectedOrgId = (selectedProjects[0] && userProjects.find(x => x.id === selectedProjects[0])?.organization_id) || undefined
+
+                  return (
+                    <div>
+                      {Array.from(groups.entries()).map(([orgId, group]) => (
+                        <div key={orgId} className="border-b border-secondary-200 last:border-0">
+                          <div className="px-3 py-2 text-xs font-semibold text-secondary-500 bg-secondary-50 sticky top-0 z-10">
+                            {group.name || '未归属组织'}
+                          </div>
+                          <ul>
+                            {group.items.map(p => {
+                              const disabled = selectedOrgId && p.organization_id !== selectedOrgId
+                              const checked = selectedProjects.includes(p.id)
+                              return (
+                                <li
+                                  key={p.id}
+                                  className={`px-3 py-2 flex items-center gap-2 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-secondary-50 cursor-pointer'}`}
+                                  onClick={() => {
+                                    if (disabled) return
+                                    setSelectedProjects(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])
+                                  }}
+                                  title={p.name}
+                                >
+                                  <span className={`w-4 h-4 rounded border-2 flex items-center justify-center ${checked ? 'bg-primary-600 border-primary-600' : 'border-secondary-300'}`}>
+                                    {checked && <Check className="h-3 w-3 text-white" />}
+                                  </span>
+                                  <span className="text-sm text-secondary-800 truncate">{p.name}</span>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()
+              )}
+            </div>
+
+            <div className="mt-3 text-xs text-secondary-600">已选 {selectedProjects.length} / {userProjects.length}</div>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -17,7 +17,9 @@ const N8N_WEBHOOK_URL = 'https://n8n.aifunbox.com/webhook/fd6b2fff-af4c-4013-8fb
 export interface UserProject {
   id: string
   name: string
-  selected?: boolean
+  description?: string
+  organization_id?: string
+  organization_name?: string
 }
 
 // 聊天记录接口
@@ -214,7 +216,7 @@ export const callN8nRAGAgentLocal = async (
   }
 }
 
-// 获取用户项目列表
+// 获取用户项目列表（创建者 + 参与者），并补充组织名称
 export const getUserProjects = async (): Promise<UserProject[]> => {
   try {
     const { createClient } = await import('@supabase/supabase-js')
@@ -228,17 +230,51 @@ export const getUserProjects = async (): Promise<UserProject[]> => {
       throw new Error('用户未登录')
     }
 
-    const { data: projects, error } = await supabase
+    // 我创建的项目
+    const { data: createdProjects, error: createdErr } = await supabase
       .from('projects')
-      .select('id, name')
+      .select('id, name, description, organization_id')
       .eq('creator_id', user.id)
-      .order('created_at', { ascending: false })
 
-    if (error) {
-      throw new Error(`获取项目失败: ${error.message}`)
+    if (createdErr) throw createdErr
+
+    // 我参与的项目
+    const { data: memberProjects, error: memberErr } = await supabase
+      .from('project_members')
+      .select('project:projects(id, name, description, organization_id)')
+      .eq('user_id', user.id)
+
+    if (memberErr) throw memberErr
+
+    const memberProjectList: UserProject[] = (memberProjects || [])
+      .map((row: any) => row.project)
+      .filter((p: any) => !!p)
+
+    // 合并去重
+    const map = new Map<string, UserProject>()
+    for (const p of createdProjects || []) map.set(p.id, { id: p.id, name: p.name, description: p.description || '', organization_id: (p as any).organization_id })
+    for (const p of memberProjectList) if (p && !map.has(p.id)) map.set(p.id, { id: p.id, name: p.name, description: p.description || '', organization_id: (p as any).organization_id })
+
+    const list = Array.from(map.values())
+
+    // 填充组织名称
+    const orgIds = Array.from(new Set(list.map(p => p.organization_id).filter(Boolean))) as string[]
+    if (orgIds.length > 0) {
+      const { data: orgs, error: orgErr } = await supabase
+        .from('organizations')
+        .select('id, name')
+        .in('id', orgIds)
+      if (!orgErr && orgs) {
+        const idToName = new Map(orgs.map(o => [o.id, o.name] as const))
+        list.forEach(p => {
+          if (p.organization_id) {
+            p.organization_name = idToName.get(p.organization_id) || undefined
+          }
+        })
+      }
     }
 
-    return projects || []
+    return list.sort((a, b) => a.name.localeCompare(b.name))
   } catch (error) {
     console.error('获取用户项目失败:', error)
     return []
