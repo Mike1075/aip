@@ -106,6 +106,14 @@ export const callN8nRAGAgent = async (
       if (jsonResponse.ai_content) {
         cleanResponse = jsonResponse.ai_content
         console.log('📝 提取ai_content:', cleanResponse)
+      } else if (jsonResponse.context) {
+        cleanResponse = jsonResponse.context
+        console.log('📝 提取context:', cleanResponse)
+      } else if (Array.isArray(jsonResponse)) {
+        // 兼容 n8n 以数组返回的情况
+        const first = jsonResponse[0]
+        if (first?.context) cleanResponse = first.context
+        else if (first?.json?.context) cleanResponse = first.json.context
       } else if (typeof jsonResponse === 'string') {
         cleanResponse = jsonResponse
       }
@@ -135,31 +143,28 @@ export const callN8nRAGAgentLocal = async (
   organizationId?: string
 ): Promise<N8nChatResponse> => {
   try {
-    // 获取当前用户ID
     const { createClient } = await import('@supabase/supabase-js')
     const supabase = createClient(
       import.meta.env.VITE_SUPABASE_URL,
       import.meta.env.VITE_SUPABASE_ANON_KEY
     )
     const { data: { user } } = await supabase.auth.getUser()
-    
-    if (!user) {
-      throw new Error('用户未登录')
-    }
+
+    // 允许游客：无登录用户时使用固定游客ID
+    const effectiveUserId = user?.id || '00000000-0000-0000-0000-000000000002'
 
     console.log('🚀 调用本地n8n RAG Agent:', {
       chatInput,
       projectId,
       organizationId,
-      userId: user.id
+      userId: effectiveUserId
     })
 
-    // 构建请求体 - 将null转换为空字符串以支持全局调用
     const requestBody: any = {
       chatInput: chatInput,
-      user_id: user.id,
-      project_id: projectId || "", // 全局调用时传递空字符串
-      organization_id: organizationId || "" // 全局调用时传递空字符串
+      user_id: effectiveUserId,
+      project_id: projectId || "",
+      organization_id: organizationId || ""
     }
 
     console.log('📋 项目智慧库:', projectId || '未选择')
@@ -194,6 +199,13 @@ export const callN8nRAGAgentLocal = async (
       if (jsonResponse.ai_content) {
         cleanResponse = jsonResponse.ai_content
         console.log('📝 提取ai_content:', cleanResponse)
+      } else if (jsonResponse.context) {
+        cleanResponse = jsonResponse.context
+        console.log('📝 提取context:', cleanResponse)
+      } else if (Array.isArray(jsonResponse)) {
+        const first = jsonResponse[0]
+        if (first?.context) cleanResponse = first.context
+        else if (first?.json?.context) cleanResponse = first.json.context
       } else if (typeof jsonResponse === 'string') {
         cleanResponse = jsonResponse
       }
@@ -392,25 +404,21 @@ export const saveChatRecord = async (
   }
 }
 
-// 获取用户聊天记录
+// 获取用户聊天记录（游客返回空，不报错）
 export const getChatRecords = async (limit = 20): Promise<ChatRecord[]> => {
   try {
-    console.log('🔌 连接Supabase...')
     const { createClient } = await import('@supabase/supabase-js')
     const supabase = createClient(
       import.meta.env.VITE_SUPABASE_URL,
       import.meta.env.VITE_SUPABASE_ANON_KEY
     )
 
-    console.log('👤 获取用户信息...')
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
-      console.log('❌ 用户未登录')
+      // 游客：不查询数据库，直接返回空记录
       return []
     }
-    console.log('✅ 用户ID:', user.id)
 
-    console.log('📝 查询聊天记录...')
     const { data, error } = await supabase
       .from('chat_history')
       .select('*')
@@ -424,7 +432,6 @@ export const getChatRecords = async (limit = 20): Promise<ChatRecord[]> => {
       return []
     }
 
-    console.log('✅ 查询成功，记录数:', data?.length || 0)
     return data || []
   } catch (error) {
     console.error('❌ 获取聊天记录异常:', error)

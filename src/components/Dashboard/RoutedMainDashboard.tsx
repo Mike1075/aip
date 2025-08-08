@@ -230,7 +230,7 @@ export function RoutedMainDashboard() {
       <main className="py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <Routes>
-            <Route path="/" element={<MyOrganizationsPage />} />
+            <Route path="/" element={isGuest ? <ExploreOrganizationsPage /> : <MyOrganizationsPage />} />
             <Route path="/my-organizations" element={<MyOrganizationsPage />} />
             <Route path="/explore-organizations" element={<ExploreOrganizationsPage />} />
             <Route path="/create-organization" element={<ExploreOrganizationsPage showCreateModal={true} />} />

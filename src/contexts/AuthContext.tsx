@@ -10,6 +10,7 @@ interface AuthContextType {
   needsOrganizationSelection: boolean
   isGuest: boolean
   emailConfirmationRequired: boolean
+  confirmationEmail: string | null
   retry: () => void
   signIn: (email: string, password: string) => Promise<{ error: any }>
   signUp: (email: string, password: string, name: string) => Promise<{ error: any, data?: any }>
@@ -38,10 +39,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [needsOrganizationSelection, setNeedsOrganizationSelection] = useState(false)
   const [isGuest, setIsGuest] = useState(false)
   const [emailConfirmationRequired, setEmailConfirmationRequired] = useState(false)
+  const [confirmationEmail, setConfirmationEmail] = useState<string | null>(null)
   const [initialized, setInitialized] = useState(false) // 防止重复初始化
 
   const clearEmailConfirmation = () => {
     setEmailConfirmationRequired(false)
+    setConfirmationEmail(null)
   }
 
   const retry = () => {
@@ -107,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log('✅ Session已设置')
         setError(null)
         setEmailConfirmationRequired(false)
+        setConfirmationEmail(null)
         
         // 创建基本用户信息
         const basicUser: User = {
@@ -140,6 +144,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false)
         setError(null)
         setEmailConfirmationRequired(false)
+        setConfirmationEmail(null)
         setNeedsOrganizationSelection(false)
         setIsGuest(false)
       } else if (event === 'USER_UPDATED' && session) {
@@ -148,6 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session.user.email_confirmed_at && emailConfirmationRequired) {
           console.log('✅ 邮箱验证完成')
           setEmailConfirmationRequired(false)
+          setConfirmationEmail(null)
           // 重新触发登录流程
           window.location.reload()
         }
@@ -242,6 +248,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // 如果用户已经存在但未验证，需要等待验证
       if (data.user && !data.user.email_confirmed_at) {
         setEmailConfirmationRequired(true)
+        setConfirmationEmail(email)
       }
       
       return { data, error: null }
@@ -302,6 +309,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       setError(null)
       setEmailConfirmationRequired(false)
+      setConfirmationEmail(null)
       setNeedsOrganizationSelection(false)
       setIsGuest(false) // 确保登录用户不是游客模式
       
@@ -328,6 +336,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setNeedsOrganizationSelection(false)
     setIsGuest(false)
     setEmailConfirmationRequired(false)
+    setConfirmationEmail(null)
     setInitialized(false) // 重置初始化状态，允许重新初始化
     
     // 清除本地存储
@@ -337,9 +346,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const enterAsGuest = () => {
     console.log('👥 进入游客模式')
     setIsGuest(true)
+    // 为游客填充一个轻量的User对象，提供固定ID供下游使用
+    const guestUser: User = {
+      id: '00000000-0000-0000-0000-000000000002',
+      email: 'guest@local',
+      name: '游客',
+      role_in_org: 'member',
+      is_ai_assist_enabled: false,
+      settings: {},
+      organization_id: '00000000-0000-0000-0000-000000000000',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }
+    setUser(guestUser)
     setSession(null)
-    setUser(null)
     setNeedsOrganizationSelection(false)
+    setLoading(false)
+    setError(null)
+    setEmailConfirmationRequired(false)
+    setConfirmationEmail(null)
   }
 
   const completeOrganizationSelection = () => {
@@ -383,6 +408,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     needsOrganizationSelection,
     isGuest,
     emailConfirmationRequired,
+    confirmationEmail,
     retry,
     signIn,
     signUp,

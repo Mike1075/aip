@@ -47,17 +47,6 @@ function AppContent() {
     )
   }
 
-  // 如果需要邮箱验证，显示验证页面
-  if (emailConfirmationRequired) {
-    return (
-      <Router>
-        <EmailConfirmation 
-          email=""
-          onBackToLogin={() => {}} 
-        />
-      </Router>
-    )
-  }
 
   return (
     <Router>

@@ -28,6 +28,7 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
   const [checkingMembership, setCheckingMembership] = useState(true)
   const [projectMembers, setProjectMembers] = useState<Array<{user_id: string, role_in_project: string, user?: {name?: string, email?: string}}>>([])
   const [projectOrganization, setProjectOrganization] = useState<Organization | undefined>()
+  const [projectStatus, setProjectStatus] = useState<string>(project.status)
 
   useEffect(() => {
     loadTasks()
@@ -375,9 +376,27 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
           <h1 className="text-2xl font-bold text-secondary-900">{project.name}</h1>
           <p className="text-secondary-600">{project.description || '暂无描述'}</p>
         </div>
-        <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(project.status)}`}>
-          {getStatusText(project.status)}
-        </span>
+        <button
+          onClick={async () => {
+            try {
+              const next = projectStatus === 'completed' ? 'active' : 'completed'
+              const { error } = await supabase
+                .from('projects')
+                .update({ status: next })
+                .eq('id', project.id)
+              if (error) throw error
+              // 本地更新UI
+              setProjectStatus(next)
+            } catch (e) {
+              console.error('更新项目状态失败', e)
+              alert('更新项目状态失败')
+            }
+          }}
+          className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(projectStatus)} hover:opacity-80 transition`}
+          title="点击切换进行中/已完成"
+        >
+          {getStatusText(projectStatus)}
+        </button>
       </div>
 
       {/* 项目概览 */}
@@ -420,7 +439,7 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
             </div>
             <div className="flex justify-between">
               <span className="text-secondary-600">项目状态</span>
-              <span className="text-secondary-900">{getStatusText(project.status)}</span>
+              <span className="text-secondary-900">{getStatusText(projectStatus)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-secondary-600">可见性</span>

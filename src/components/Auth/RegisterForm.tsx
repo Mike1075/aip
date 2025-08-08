@@ -41,7 +41,8 @@ export function RegisterForm({ onToggleMode, onEmailConfirmationRequired }: Regi
     if (error) {
       setError(error.message || '注册失败，请稍后重试')
     } else if (data?.user && !data.user.email_confirmed_at) {
-      // 需要邮箱验证
+      // 需要邮箱验证，传递用户输入的邮箱地址
+      console.log('📧 需要邮箱验证，传递邮箱:', email)
       onEmailConfirmationRequired(email)
     } else {
       setSuccess('注册成功！')
