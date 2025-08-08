@@ -79,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           updated_at: new Date().toISOString()
         }
         setUser(basicUser)
+        setIsGuest(false) // 确保已登录用户不是游客模式
         
         // 后台确保用户在数据库中存在（不阻塞UI）
         ensureUserExistsInDatabase(session.user).catch(error => {
@@ -124,6 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         // 直接进入主界面，不需要组织选择
         setNeedsOrganizationSelection(false)
+        setIsGuest(false) // 确保登录用户不是游客模式
         setLoading(false)
         console.log('✅ Loading已设置为false，应该跳转到主界面')
         
@@ -301,6 +303,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setError(null)
       setEmailConfirmationRequired(false)
       setNeedsOrganizationSelection(false)
+      setIsGuest(false) // 确保登录用户不是游客模式
       
       console.log('✅ 登录成功，状态已手动设置')
       return { error: null }

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react'
 import { ArrowLeft, Plus, Check, Trash2, ChevronDown, ChevronRight, Users, Calendar, BarChart3, Upload, UserCog } from 'lucide-react'
-import { Project, Task, supabase, organizationAPI } from '@/lib/supabase'
+import { Project, Task, supabase, organizationAPI, Organization } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { FileUpload } from './FileUpload'
 import { TeamAvatars } from './TeamAvatars'
+import { FloatingChatBot } from './FloatingChatBot'
 
 interface ProjectDetailPageProps {
   project: Project
@@ -26,11 +27,13 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
   const [isProjectManager, setIsProjectManager] = useState(false)
   const [checkingMembership, setCheckingMembership] = useState(true)
   const [projectMembers, setProjectMembers] = useState<Array<{user_id: string, role_in_project: string, user?: {name?: string, email?: string}}>>([])
+  const [projectOrganization, setProjectOrganization] = useState<Organization | undefined>()
 
   useEffect(() => {
     loadTasks()
     checkProjectMembership()
     loadProjectMembers()
+    loadProjectOrganization()
   }, [project.id, user])
 
   const checkProjectMembership = async () => {
@@ -81,6 +84,17 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
     } catch (error) {
       console.error('❌ 加载项目成员失败:', error)
       setProjectMembers([])
+    }
+  }
+
+  const loadProjectOrganization = async () => {
+    try {
+      if (project.organization_id) {
+        const organization = await organizationAPI.getOrganizationById(project.organization_id)
+        setProjectOrganization(organization)
+      }
+    } catch (error) {
+      console.error('❌ 加载项目组织失败:', error)
     }
   }
 
@@ -669,16 +683,43 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
 
       {/* 文件上传弹窗 */}
       {showFileUpload && (
-        <FileUpload 
-          projectId={project.id}
-          userId={user?.id || ''}
-          onUploadSuccess={() => {
-            setShowFileUpload(false)
-            // 可以在这里添加成功提示或刷新数据
-          }}
-          onClose={() => setShowFileUpload(false)}
-        />
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowFileUpload(false)}
+        >
+          <div 
+            className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-6 border-b border-secondary-200">
+              <h2 className="text-xl font-semibold text-secondary-900">
+                上传项目文档
+              </h2>
+              <button
+                onClick={() => setShowFileUpload(false)}
+                className="p-2 hover:bg-secondary-100 rounded-lg transition-colors text-xl font-semibold text-secondary-500 hover:text-secondary-700"
+              >
+                ×
+              </button>
+            </div>
+            <FileUpload 
+              projectId={project.id}
+              userId={user?.id || ''}
+              onUploadSuccess={() => {
+                setShowFileUpload(false)
+                // 可以在这里添加成功提示或刷新数据
+              }}
+              onClose={() => setShowFileUpload(false)}
+            />
+          </div>
+        </div>
       )}
+
+      {/* 浮动聊天机器人 - 显示项目选择器，传递项目组织信息 */}
+      <FloatingChatBot 
+        organization={projectOrganization} 
+        showProjectSelector={true} 
+      />
     </div>
   )
 }

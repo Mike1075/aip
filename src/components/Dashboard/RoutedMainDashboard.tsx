@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Routes, Route, useParams, useNavigate } from 'react-router-dom'
-import { Building2, Users, Home, Settings, LogOut, User, Globe, Menu, Inbox } from 'lucide-react'
+import { Building2, Users, Home, Settings, LogOut, User, Globe, Menu, Inbox, Mail } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Organization, Project, organizationAPI } from '@/lib/supabase'
 import { OrganizationSidebar } from './OrganizationSidebar'
@@ -15,6 +15,7 @@ import { OrganizationDetailPage } from '@/pages/OrganizationDetailPage'
 import { OrganizationDashboardPage } from '@/pages/OrganizationDashboardPage'
 import { ProjectDetailPage } from '@/pages/ProjectDetailPage'
 import { ProjectSettingsPage } from '@/pages/ProjectSettingsPage'
+import { InviteModal } from './InviteModal'
 
 export function RoutedMainDashboard() {
   const { user, signOut, isGuest } = useAuth()
@@ -26,7 +27,8 @@ export function RoutedMainDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showInbox, setShowInbox] = useState(false)
   const { unreadCount, refreshUnreadCount } = useUnreadMessages()
-
+  const [showInviteModal, setShowInviteModal] = useState(false)
+  
   // 数据状态
   const [selectedOrganization, setSelectedOrganization] = useState<Organization | null>(null)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)
@@ -151,7 +153,7 @@ export function RoutedMainDashboard() {
                 <button
                   onClick={() => setShowInbox(true)}
                   className="p-2 hover:bg-secondary-100 rounded-lg transition-colors relative"
-                  title="收件箱"
+                  title="消息盒子"
                 >
                   <Inbox className="h-5 w-5 text-secondary-600" />
                   {unreadCount > 0 && (
@@ -185,6 +187,18 @@ export function RoutedMainDashboard() {
                   
                   {showUserMenu && (
                     <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-secondary-200 py-2 z-50">
+                      {!isGuest && (
+                        <button
+                          onClick={() => {
+                            setShowInviteModal(true)
+                            setShowUserMenu(false)
+                          }}
+                          className="w-full px-4 py-2 text-left text-sm text-secondary-700 hover:bg-secondary-50 flex items-center gap-2"
+                        >
+                          <Mail className="h-4 w-4" />
+                          发送邀请
+                        </button>
+                      )}
                       <button
                         onClick={() => {
                           signOut()
@@ -249,12 +263,22 @@ export function RoutedMainDashboard() {
         onSelectOrganization={handleSidebarOrganizationSelect}
       />
 
-      {/* 收件箱 */}
+      {/* 消息盒子 */}
       {showInbox && (
-        <InteractionLog onClose={() => {
-          setShowInbox(false)
-          refreshUnreadCount()
-        }} />
+        <InteractionLog 
+          onClose={() => {
+            setShowInbox(false)
+            refreshUnreadCount()
+          }}
+          onUnreadCountChange={refreshUnreadCount} // 传递刷新未读计数的回调
+        />
+      )}
+
+      {/* 邀请弹窗 */}
+      {showInviteModal && (
+        <InviteModal 
+          onClose={() => setShowInviteModal(false)}
+        />
       )}
     </div>
   )

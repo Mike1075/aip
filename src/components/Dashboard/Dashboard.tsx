@@ -9,7 +9,8 @@ import { CreateProjectModal } from './CreateProjectModal'
 import { EditDescriptionModal } from './EditDescriptionModal'
 import { generatePath } from '@/config/routes'
 import { useOrganizationCache } from '@/hooks/use-data-cache'
-import { Plus, MessageSquare, Building2, Users, Trophy, RefreshCw } from 'lucide-react'
+import { Plus, Building2, Users, Trophy, RefreshCw } from 'lucide-react'
+import { FloatingChatBot } from './FloatingChatBot'
 
 interface DashboardProps {
   organization?: Organization
@@ -31,7 +32,6 @@ export function Dashboard({ organization }: DashboardProps) {
   const [myTasks, setMyTasks] = useState<Task[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
-  const [showAIChat, setShowAIChat] = useState(false)
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [creatingProject, setCreatingProject] = useState(false)
   const [showEditDescription, setShowEditDescription] = useState(false)
@@ -70,7 +70,8 @@ export function Dashboard({ organization }: DashboardProps) {
           // 将项目角色映射到权限类型
           if (role === 'manager') {
             permissions[project.id] = 'manager'
-          } else if (role === 'developer' || role === 'tester' || role === 'designer') {
+          } else if (role) {
+            // 只要有任何角色（如 member/developer/tester/designer 等），都视为成员
             permissions[project.id] = 'member'
           } else {
             permissions[project.id] = 'none'
@@ -520,30 +521,14 @@ export function Dashboard({ organization }: DashboardProps) {
                 </p>
               </div>
 
-              {/* 快速操作按钮 */}
-              <div className="flex flex-wrap gap-4 mb-8">
-                <button 
-                  onClick={() => setShowAIChat(true)}
-                  className="btn-secondary flex items-center gap-2"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  与AI对话
-                </button>
-                <button 
-                  onClick={handleRefresh}
-                  disabled={refreshing}
-                  className="btn-secondary flex items-center gap-2 disabled:opacity-50"
-                  title="刷新数据"
-                >
-                  <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-                  {refreshing ? '刷新中...' : '刷新'}
-                </button>
-                {!isOrganizationMember && (
-                  <div className="text-sm text-secondary-500 italic px-3 py-2 bg-secondary-50 rounded-lg">
+              {/* 提示信息 */}
+              {!isOrganizationMember && (
+                <div className="mb-8">
+                  <div className="text-sm text-secondary-500 italic px-3 py-2 bg-secondary-50 rounded-lg inline-block">
                     只有组织成员才能创建项目
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* 主要内容布局 */}
               <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -664,10 +649,8 @@ export function Dashboard({ organization }: DashboardProps) {
             </>
       </div>
 
-      {/* AI聊天弹窗 */}
-      {showAIChat && (
-        <AIChat onClose={() => setShowAIChat(false)} organization={organization} />
-      )}
+      {/* 统一的悬浮聊天机器人 */}
+      <FloatingChatBot organization={organization} />
 
       {/* 创建项目弹窗 */}
       <CreateProjectModal

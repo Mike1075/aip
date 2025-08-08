@@ -3,13 +3,15 @@ import { X, Send, Bot, User, ChevronDown, ChevronUp, Trash2, RotateCcw } from 'l
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ProjectSelector } from './ProjectSelector'
-import { callN8nRAGAgent, callN8nRAGAgentLocal, getChatRecords, saveChatRecord } from '../../lib/n8n'
+import { OrganizationSelector } from './OrganizationSelector'
+import { callN8nRAGAgent, callN8nRAGAgentLocal, getChatRecords, saveChatRecord, deleteChatMessage } from '../../lib/n8n'
 import { Organization, organizationAPI } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface AIChatProps {
   onClose: () => void
   organization?: Organization
+  showProjectSelector?: boolean
 }
 
 interface ChatMessage {
@@ -19,13 +21,15 @@ interface ChatMessage {
   timestamp: Date
 }
 
-export function AIChat({ onClose, organization }: AIChatProps) {
+export function AIChat({ onClose, organization, showProjectSelector = true }: AIChatProps) {
   const { user } = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [selectedProjects, setSelectedProjects] = useState<string[]>([])
+  const [selectedOrganizations, setSelectedOrganizations] = useState<string[]>([])
   const [isProjectSelectorExpanded, setIsProjectSelectorExpanded] = useState(false)
+  const [isOrganizationSelectorExpanded, setIsOrganizationSelectorExpanded] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
 
   // 获取清空点时间戳
@@ -40,37 +44,93 @@ export function AIChat({ onClose, organization }: AIChatProps) {
 
   // 智能删除单个聊天消息
   const handleDeleteMessage = async (messageId: string, message: ChatMessage) => {
+    console.log('🚀 开始删除消息流程:', { messageId, message, userId: user?.id })
+    
     if (!user?.id) {
       console.error('❌ 用户未登录，无法删除消息')
+      alert('请先登录')
+      return
+    }
+
+    // 跳过删除欢迎消息和时间戳生成的消息
+    if (messageId === 'welcome') {
+      console.log('⚠️ 跳过删除欢迎消息')
+      alert('无法删除欢迎消息')
+      return
+    }
+
+    // 检查是否为历史消息（格式：user-uuid 或 ai-uuid）
+    if (!messageId.includes('-')) {
+      console.log('⚠️ 跳过删除临时消息（未保存到数据库）:', messageId)
+      alert('只能删除已保存的历史消息，刚发送的消息请等待保存后再删除')
+      return
+    }
+
+    // 检查UUID格式
+    const parts = messageId.split('-')
+    if (parts.length < 2) {
+      console.log('⚠️ 消息ID格式不正确:', messageId)
+      alert('消息ID格式错误')
+      return
+    }
+
+    // 用户确认
+    if (!confirm('确定要删除这条消息吗？')) {
+      console.log('⚠️ 用户取消删除')
       return
     }
 
     try {
       console.log('🗑️ 智能删除聊天消息:', { messageId, message })
       
-      // 先从UI中移除消息
-      setMessages(prev => prev.filter(msg => msg.id !== messageId))
+      // 从消息ID中提取数据库记录ID
+      // messageId格式: "user-{uuid}" 或 "ai-{uuid}"
+      const parts = messageId.split('-')
+      const recordId = parts.slice(1).join('-') // 重新组合UUID，因为UUID本身包含连字符
       
-      if (message.role === 'user') {
-        // 删除用户消息：只清空content字段，保留ai_content
-        await organizationAPI.clearUserMessage(message.content, message.timestamp, user.id)
-        console.log('✅ 用户消息已清空')
-      } else {
-        // 删除AI消息：通过时间戳直接定位记录
-        // 从消息ID中提取原始记录ID
-        const recordId = message.id.replace('ai-', '')
-        console.log('🔍 尝试删除AI回复，记录ID:', recordId, '时间戳:', message.timestamp)
-        
-        // 使用消息的时间戳和一个占位符内容来调用清空方法
-        await organizationAPI.clearAIMessage('', message.timestamp, user.id)
-        console.log('✅ AI回复已清空')
+      if (!recordId) {
+        console.error('❌ 无法解析消息ID:', messageId)
+        alert('消息ID格式错误')
+        return
       }
+
+      // 简单的UUID格式验证
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!uuidRegex.test(recordId)) {
+        console.error('❌ 无效的UUID格式:', recordId)
+        alert('无效的消息ID格式')
+        return
+      }
+
+      console.log('📋 准备删除记录ID:', recordId)
+
+      // 确定消息类型
+      const messageType = message.role === 'user' ? 'user' : 'ai'
+      console.log('📝 消息类型:', messageType)
+
+      // 先从UI中移除指定的消息
+      setMessages(prev => {
+        const filtered = prev.filter(msg => msg.id !== messageId)
+        console.log('🔄 UI消息过滤:', { 
+          原始消息数: prev.length, 
+          过滤后: filtered.length,
+          删除的消息ID: messageId 
+        })
+        return filtered
+      })
       
-      // 重新加载聊天历史以反映数据库变化
+      // 调用新的智能删除API
+      console.log('🗄️ 调用数据库智能删除API...')
+      await deleteChatMessage(recordId, messageType)
+      console.log('✅ 聊天消息删除成功:', { recordId, messageType })
+      
+      // 重新加载聊天历史以确保UI与数据库同步
+      console.log('🔄 重新加载聊天历史...')
       await refreshChatHistory()
       
     } catch (error) {
       console.error('❌ 删除消息失败:', error)
+      alert(`删除失败: ${error instanceof Error ? error.message : '未知错误'}`)
       // 如果删除失败，重新加载聊天历史恢复正确状态
       await refreshChatHistory()
     }
@@ -266,11 +326,19 @@ export function AIChat({ onClose, organization }: AIChatProps) {
         projectId = selectedProjects.length === 1 ? selectedProjects[0] : selectedProjects
       }
       
-      // 调用n8n RAG系统
+      // 确定组织ID - 优先使用选择的组织，其次使用当前组织上下文
+      let organizationId = ""
+      if (selectedOrganizations.length > 0) {
+        organizationId = selectedOrganizations.length === 1 ? selectedOrganizations[0] : selectedOrganizations.join(',')
+      } else if (organization?.id) {
+        organizationId = organization.id
+      }
+      
+      // 调用n8n RAG系统 - 确保传递空字符串而不是undefined
       const result = await callN8nRAGAgentLocal(
         input.trim(), 
         projectId, 
-        organization?.id // 传递组织ID以启用组织智慧库
+        organizationId // 传递组织ID或空字符串
       )
 
       // 清理AI回复中的转义字符
@@ -371,7 +439,7 @@ export function AIChat({ onClose, organization }: AIChatProps) {
             >
               {message.role === 'assistant' && (
                 <div className="p-2 bg-primary-100 rounded-lg">
-                  <Bot className="h-4 w-4 text-primary-600" />
+                  <Bot className="h-5 w-5 text-primary-600" />
                 </div>
               )}
               
@@ -398,10 +466,21 @@ export function AIChat({ onClose, organization }: AIChatProps) {
                 {message.id !== 'welcome' && (
                   <div className="relative">
                     <button
-                      onDoubleClick={() => handleDeleteMessage(message.id, message)}
-                      className={`opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-100 peer ${
+                      onDoubleClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        console.log('🖱️ 双击删除按钮:', { messageId: message.id, message })
+                        handleDeleteMessage(message.id, message)
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        console.log('🖱️ 单击删除按钮:', message.id)
+                      }}
+                      className={`opacity-30 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-100 peer cursor-pointer ${
                         message.role === 'user' ? 'order-first' : ''
                       }`}
+                      title="双击删除此消息"
                     >
                       <X className="h-3 w-3 text-red-500 hover:text-red-700" />
                     </button>
@@ -426,7 +505,7 @@ export function AIChat({ onClose, organization }: AIChatProps) {
           {isLoading && (
             <div className="flex items-start gap-3">
               <div className="p-2 bg-primary-100 rounded-lg">
-                <Bot className="h-4 w-4 text-primary-600" />
+                <Bot className="h-5 w-5 text-primary-600" />
               </div>
               <div className="bg-secondary-100 px-4 py-2 rounded-lg">
                 <div className="flex gap-1">
@@ -441,32 +520,63 @@ export function AIChat({ onClose, organization }: AIChatProps) {
 
         {/* 输入区域 */}
         <div className="p-4 border-t border-secondary-200">
-          {/* 可折叠项目选择器 */}
-          <div className="mb-3">
-            <button
-              onClick={() => setIsProjectSelectorExpanded(!isProjectSelectorExpanded)}
-              className="flex items-center justify-between w-full p-2 bg-secondary-50 hover:bg-secondary-100 rounded-lg transition-colors text-sm"
-            >
-              <span className="font-medium text-secondary-700">
-                选择项目 (可选) {selectedProjects.length > 0 && `- ${selectedProjects.length}个已选择`}
-              </span>
-              {isProjectSelectorExpanded ? (
-                <ChevronUp className="h-4 w-4 text-secondary-500" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-secondary-500" />
+          {/* 可折叠组织选择器 - 只在没有项目选择器或没有组织上下文时显示 */}
+          {!showProjectSelector && (
+            <div className="mb-3">
+              <button
+                onClick={() => setIsOrganizationSelectorExpanded(!isOrganizationSelectorExpanded)}
+                className="flex items-center justify-between w-full p-2 bg-secondary-50 hover:bg-secondary-100 rounded-lg transition-colors text-sm"
+              >
+                <span className="font-medium text-secondary-700">
+                  选择组织 (可选) {selectedOrganizations.length > 0 && `- ${selectedOrganizations.length}个已选择`}
+                </span>
+                {isOrganizationSelectorExpanded ? (
+                  <ChevronUp className="h-4 w-4 text-secondary-500" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-secondary-500" />
+                )}
+              </button>
+              
+              {isOrganizationSelectorExpanded && (
+                <div className="mt-2">
+                  <OrganizationSelector
+                    selectedOrganizations={selectedOrganizations}
+                    onOrganizationsChange={setSelectedOrganizations}
+                    currentOrganization={organization}
+                  />
+                </div>
               )}
-            </button>
-            
-            {isProjectSelectorExpanded && (
-              <div className="mt-2">
-                <ProjectSelector
-                  selectedProjects={selectedProjects}
-                  onProjectsChange={setSelectedProjects}
-                  organization={organization}
-                />
-              </div>
-            )}
-          </div>
+            </div>
+          )}
+
+          {/* 可折叠项目选择器 - 只在showProjectSelector为true时显示 */}
+          {showProjectSelector && (
+            <div className="mb-3">
+              <button
+                onClick={() => setIsProjectSelectorExpanded(!isProjectSelectorExpanded)}
+                className="flex items-center justify-between w-full p-2 bg-secondary-50 hover:bg-secondary-100 rounded-lg transition-colors text-sm"
+              >
+                <span className="font-medium text-secondary-700">
+                  选择项目 (可选) {selectedProjects.length > 0 && `- ${selectedProjects.length}个已选择`}
+                </span>
+                {isProjectSelectorExpanded ? (
+                  <ChevronUp className="h-4 w-4 text-secondary-500" />
+                ) : (
+                  <ChevronDown className="h-4 w-4 text-secondary-500" />
+                )}
+              </button>
+              
+              {isProjectSelectorExpanded && (
+                <div className="mt-2">
+                  <ProjectSelector
+                    selectedProjects={selectedProjects}
+                    onProjectsChange={setSelectedProjects}
+                    organization={organization}
+                  />
+                </div>
+              )}
+            </div>
+          )}
           
           <div className="flex items-end gap-3">
             <div className="flex-1">

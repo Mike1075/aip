@@ -70,23 +70,16 @@ export const callN8nRAGAgent = async (
       userId: user.id
     })
 
-    // 构建请求体
+    // 构建请求体 - 将空值转换为特殊UUID，避免n8n create row节点报错
     const requestBody: any = {
       chatInput: chatInput,
-      user_id: user.id
+      user_id: user.id,
+      project_id: projectId || '00000000-0000-0000-0000-000000000001', // 空值时使用特殊UUID
+      organization_id: organizationId || '00000000-0000-0000-0000-000000000002' // 空值时使用特殊UUID
     }
 
-    // 如果有项目ID，添加到请求中
-    if (projectId) {
-      requestBody.project_id = projectId
-      console.log('📋 包含项目智慧库:', projectId)
-    }
-
-    // 如果有组织ID，添加到请求中
-    if (organizationId) {
-      requestBody.organization_id = organizationId
-      console.log('📋 包含组织智慧库:', organizationId)
-    }
+    console.log('📋 项目智慧库:', projectId || '未选择')
+    console.log('📋 组织智慧库:', organizationId || '未指定')
 
     const response = await fetch(N8N_WEBHOOK_URL, {
       method: 'POST',
@@ -159,23 +152,16 @@ export const callN8nRAGAgentLocal = async (
       userId: user.id
     })
 
-    // 构建请求体
+    // 构建请求体 - 将null转换为空字符串以支持全局调用
     const requestBody: any = {
       chatInput: chatInput,
-      user_id: user.id
+      user_id: user.id,
+      project_id: projectId || "", // 全局调用时传递空字符串
+      organization_id: organizationId || "" // 全局调用时传递空字符串
     }
 
-    // 如果有项目ID，添加到请求中
-    if (projectId) {
-      requestBody.project_id = projectId
-      console.log('📋 包含项目智慧库:', projectId)
-    }
-
-    // 如果有组织ID，添加到请求中
-    if (organizationId) {
-      requestBody.organization_id = organizationId
-      console.log('📋 包含组织智慧库:', organizationId)
-    }
+    console.log('📋 项目智慧库:', projectId || '未选择')
+    console.log('📋 组织智慧库:', organizationId || '未指定')
 
     console.log('📤 发送到n8n的完整请求体:', JSON.stringify(requestBody, null, 2))
     console.log('🔗 请求URL:', N8N_WEBHOOK_URL)
@@ -281,17 +267,6 @@ export const uploadDocumentToN8n = async (
     formData.append('project_id', projectId)
     formData.append('user_id', userId)
     formData.append('title', title)
-    
-    // 对于Markdown文件，额外发送文件内容
-    if (file.name.toLowerCase().endsWith('.md') || file.name.toLowerCase().endsWith('.markdown')) {
-      try {
-        const fileContent = await file.text()
-        formData.append('markdown_content', fileContent)
-        console.log('📋 添加Markdown内容到FormData，长度:', fileContent.length)
-      } catch (error) {
-        console.error('❌ 读取Markdown文件内容失败:', error)
-      }
-    }
 
     // 验证FormData内容
     console.log('📁 FormData检查:')
@@ -537,4 +512,103 @@ const saveDocumentRecord = async (
   }
   
   console.log('✅ 文档记录保存成功，已关联组织ID:', project.organization_id)
+}
+
+// 删除聊天记录 - 支持部分删除和智能清理
+export const deleteChatMessage = async (
+  recordId: string, 
+  messageType: 'user' | 'ai' | 'both'
+): Promise<void> => {
+  try {
+    const { createClient } = await import('@supabase/supabase-js')
+    const supabase = createClient(
+      import.meta.env.VITE_SUPABASE_URL,
+      import.meta.env.VITE_SUPABASE_ANON_KEY
+    )
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      throw new Error('用户未登录')
+    }
+
+    console.log('🗑️ 删除聊天消息:', { recordId, messageType, userId: user.id })
+
+    if (messageType === 'both') {
+      // 删除整行记录
+      const { error } = await supabase
+        .from('chat_history')
+        .delete()
+        .eq('id', recordId)
+        .eq('user_id', user.id)
+
+      if (error) {
+        console.error('❌ 删除整行聊天记录失败:', error)
+        throw new Error(`删除整行聊天记录失败: ${error.message}`)
+      }
+      console.log('✅ 整行聊天记录删除成功')
+    } else {
+      // 部分删除：先获取当前记录状态
+      const { data: currentRecord, error: fetchError } = await supabase
+        .from('chat_history')
+        .select('content, ai_content')
+        .eq('id', recordId)
+        .eq('user_id', user.id)
+        .single()
+
+      if (fetchError) {
+        console.error('❌ 获取聊天记录失败:', fetchError)
+        throw new Error(`获取聊天记录失败: ${fetchError.message}`)
+      }
+
+      // 确定更新的字段 - 使用空字符串代替NULL以避免约束问题
+      let updateData: { content?: string, ai_content?: string } = {}
+      
+      if (messageType === 'user') {
+        updateData.content = ''
+      } else if (messageType === 'ai') {
+        updateData.ai_content = ''
+      }
+
+      // 检查删除后是否两个字段都为空（或空字符串）
+      const willContentBeEmpty = messageType === 'user' ? true : (!currentRecord.content || currentRecord.content.trim() === '')
+      const willAiContentBeEmpty = messageType === 'ai' ? true : (!currentRecord.ai_content || currentRecord.ai_content.trim() === '')
+
+      if (willContentBeEmpty && willAiContentBeEmpty) {
+        // 如果删除后两个字段都为空，直接删除整行
+        console.log('🗑️ 两个字段都将为空，删除整行记录')
+        const { error } = await supabase
+          .from('chat_history')
+          .delete()
+          .eq('id', recordId)
+          .eq('user_id', user.id)
+
+        if (error) {
+          console.error('❌ 删除整行记录失败:', error)
+          throw new Error(`删除整行记录失败: ${error.message}`)
+        }
+        console.log('✅ 整行记录删除成功')
+      } else {
+        // 部分更新
+        const { error } = await supabase
+          .from('chat_history')
+          .update(updateData)
+          .eq('id', recordId)
+          .eq('user_id', user.id)
+
+        if (error) {
+          console.error('❌ 部分删除失败:', error)
+          throw new Error(`部分删除失败: ${error.message}`)
+        }
+        console.log('✅ 部分删除成功:', updateData)
+      }
+    }
+  } catch (error) {
+    console.error('❌ 删除聊天消息异常:', error)
+    throw error
+  }
+}
+
+// 保持向后兼容的旧函数
+export const deleteChatRecord = async (recordId: string): Promise<void> => {
+  return deleteChatMessage(recordId, 'both')
 }

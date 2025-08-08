@@ -23,12 +23,30 @@ supabase.auth.getSession().then(({ data, error }) => {
 export interface Notification {
   id: string
   user_id: string
-  type: 'organization_request_approved' | 'organization_request_rejected' | 'project_request_approved' | 'project_request_rejected'
+  type: 'organization_request_approved' | 'organization_request_rejected' | 'project_request_approved' | 'project_request_rejected' | 'organization_invitation' | 'project_invitation' | 'invitation_accepted' | 'invitation_rejected' | 'invitation_received' | 'invitation_sent'
   title: string
   message: string
   is_read: boolean
   metadata: Record<string, any>
   created_at: string
+}
+
+// 邀请接口定义
+export interface Invitation {
+  id: string
+  inviter_id: string
+  invitee_email: string
+  invitee_id?: string
+  invitation_type: 'organization' | 'project'
+  target_id: string
+  target_name: string
+  status: 'pending' | 'accepted' | 'rejected' | 'expired'
+  message?: string
+  created_at: string
+  updated_at: string
+  expires_at: string
+  responded_at?: string
+  response_message?: string
 }
 
 // 数据库类型定义
@@ -122,6 +140,7 @@ export interface ProjectJoinRequest {
   created_at: string
   reviewed_at?: string
   reviewed_by?: string
+  is_read?: boolean
 }
 
 // 组织加入申请表
@@ -134,6 +153,7 @@ export interface OrganizationJoinRequest {
   created_at: string
   reviewed_at?: string
   reviewed_by?: string
+  is_read?: boolean
 }
 
 // 项目文档表
@@ -588,6 +608,43 @@ export const organizationAPI = {
     return !!data
   },
 
+  /**
+   * 将用户加入组织（接受邀请或管理员添加）
+   */
+  async addMember(organizationId: string, userId: string, role: 'admin' | 'member' = 'member'): Promise<void> {
+    // 已是成员则无需重复插入，如角色不同可更新
+    const { data: existing, error: existErr } = await supabase
+      .from('user_organizations')
+      .select('id, role_in_org')
+      .eq('organization_id', organizationId)
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (existErr && existErr.code !== 'PGRST116') throw existErr
+
+    if (existing) {
+      // 若已有记录且角色不同，做一次轻量更新
+      if (existing.role_in_org !== role) {
+        const { error: updateErr } = await supabase
+          .from('user_organizations')
+          .update({ role_in_org: role })
+          .eq('id', existing.id)
+        if (updateErr) throw updateErr
+      }
+      return
+    }
+
+    const { error } = await supabase
+      .from('user_organizations')
+      .insert({
+        user_id: userId,
+        organization_id: organizationId,
+        role_in_org: role,
+        joined_at: new Date().toISOString()
+      })
+    if (error) throw error
+  },
+
   // 获取用户在项目中的角色
   async getUserProjectRole(projectId: string, userId: string): Promise<'manager' | 'developer' | 'tester' | 'designer' | null> {
     const { data, error } = await supabase
@@ -833,51 +890,34 @@ export const organizationAPI = {
     
     const knowledgeBaseContent = `# ${organization.name} 组织智慧库
 
-欢迎来到 **${organization.name}** 的组织智慧库！
+## 组织简介
+${organization.description || '这是一个新创建的组织，暂无详细描述。'}
 
-${organization.description ? `> ${organization.description}` : ''}
+## 使用指南
+这是您组织的智慧库，您可以在这里添加组织的重要信息、规范和指导文档。
+所有组织成员都可以访问这些内容，帮助大家更好地了解组织和协作。
 
-这里是我们组织的知识中心，用于存储和分享重要信息。
+## 常见问题
+1. 如何邀请新成员加入组织？
+   - 在组织页面，点击"邀请成员"按钮发送邀请。
 
-## 📚 主要用途
-- **组织制度和流程文档** - 规章制度、工作流程、标准操作程序
-- **项目经验和最佳实践** - 成功案例、经验教训、技术分享
-- **常见问题解答** - FAQ、问题解决方案、技术支持
-- **团队知识分享** - 培训材料、学习资源、技能分享
-- **重要决策记录** - 会议纪要、决策过程、政策变更
+2. 如何创建新项目？
+   - 在组织工作台页面，点击"创建项目"按钮。
 
-## 🎯 使用指南
-1. **查看权限** - 所有成员都可以查看和使用这些知识
-2. **编辑权限** - 管理员可以编辑和维护内容
-3. **AI 支持** - 支持 AI 智能问答，快速查找信息
-4. **定期维护** - 请定期更新确保信息准确性
+3. 如何管理组织成员权限？
+   - 组织管理员可以在成员列表中修改成员角色。
+`
 
-## 🚀 快速开始
-- 点击编辑按钮开始添加您的第一份文档
-- 使用 Markdown 格式进行内容编写
-- 通过标签和分类来组织内容
-- 利用 AI 助手来快速查找和整理信息
-
----
-
-*创建时间：${new Date().toLocaleString('zh-CN')}*
-*这是一个自动生成的组织智慧库模板，您可以根据需要自由修改和完善。*`
-    
     const { error } = await supabase
       .from('documents')
       .insert({
+        project_id: null, // 组织级别文档，不属于特定项目
+        user_id: userId,
+        organization_id: organizationId,
         title: '组织智慧库',
         content: knowledgeBaseContent,
-        metadata: { 
-          type: 'organization_knowledge_base',
-          description: '组织级别的知识库，用于存储组织相关的文档和信息',
-          template_version: '1.0',
-          auto_generated: true
-        },
-        embedding: null,
-        project_id: null, // 组织级文档不关联具体项目
-        user_id: userId,
-        organization_id: organizationId
+        metadata: { type: 'organization_knowledge_base' },
+        embedding: null
       })
     
     if (error) {
@@ -885,17 +925,15 @@ ${organization.description ? `> ${organization.description}` : ''}
       throw error
     }
     
-    console.log('✅ 组织智慧库文档创建成功，组织ID:', organizationId)
+    console.log('✅ 组织智慧库文档创建成功')
   },
 
-  // ===== 通知系统 API =====
-  
-  // 创建通知
+  // 通知相关API
   async createNotification(
-    userId: string, 
-    type: Notification['type'], 
-    title: string, 
-    message: string, 
+    userId: string,
+    type: Notification['type'],
+    title: string,
+    message: string,
     metadata: Record<string, any> = {}
   ): Promise<Notification> {
     const { data, error } = await supabase
@@ -915,26 +953,13 @@ ${organization.description ? `> ${organization.description}` : ''}
     return data
   },
 
-  // 获取用户的未读通知数量
-  async getUnreadNotificationCount(userId: string): Promise<number> {
-    const { count, error } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('is_read', false)
-    
-    if (error) throw error
-    return count || 0
-  },
-
-  // 获取用户的所有通知
-  async getUserNotifications(userId: string, limit: number = 50): Promise<Notification[]> {
+  // 获取用户通知
+  async getUserNotifications(userId: string): Promise<Notification[]> {
     const { data, error } = await supabase
       .from('notifications')
       .select('*')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(limit)
     
     if (error) throw error
     return data || []
@@ -950,382 +975,313 @@ ${organization.description ? `> ${organization.description}` : ''}
     if (error) throw error
   },
 
-  // 标记用户所有通知为已读
-  async markAllNotificationsAsRead(userId: string): Promise<void> {
+  // 标记组织申请为已读
+  async markOrganizationRequestAsRead(requestId: string): Promise<void> {
     const { error } = await supabase
-      .from('notifications')
+      .from('organization_join_requests')
       .update({ is_read: true })
-      .eq('user_id', userId)
-      .eq('is_read', false)
+      .eq('id', requestId)
     
     if (error) throw error
   },
 
-  // 获取组织智慧库文档
-  async getOrganizationKnowledgeBase(organizationId: string): Promise<Document | null> {
-    console.log('📚 获取组织智慧库文档:', { organizationId })
+  // 标记项目申请为已读
+  async markProjectRequestAsRead(requestId: string): Promise<void> {
+    const { error } = await supabase
+      .from('project_join_requests')
+      .update({ is_read: true })
+      .eq('id', requestId)
     
-    const { data, error } = await supabase
-      .from('documents')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .eq('title', '组织智慧库')
-      .is('project_id', null) // 组织级文档不关联具体项目
-      .single()
-    
-    if (error && error.code !== 'PGRST116') {
-      console.error('❌ 获取组织智慧库失败:', error)
-      throw error
-    }
-    
-    if (!data) {
-      console.log('📝 组织智慧库不存在')
-      return null
-    }
-    
-    console.log('✅ 获取组织智慧库成功')
-    return data
+    if (error) throw error
   },
 
-  // 获取组织的所有文档（包括组织级和项目级）
-  async getOrganizationAllDocuments(organizationId: string): Promise<Document[]> {
-    console.log('📚 获取组织所有文档:', { organizationId })
+  // 获取未读消息数量
+  async getUnreadCount(userId: string): Promise<number> {
+    // 获取未读通知数量（排除邀请类通知，邀请在“收到的邀请”中处理）
+    const { count: notificationCount, error: notificationError } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('is_read', false)
+      .neq('type', 'invitation_sent')
+      .neq('type', 'invitation_received')
     
-    const { data, error } = await supabase
-      .from('documents')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .order('created_at', { ascending: false })
-    
-    if (error) {
-      console.error('❌ 获取组织文档失败:', error)
-      throw error
+    if (notificationError) {
+      console.error('获取未读通知数量失败:', notificationError)
+      return 0
     }
-    
-    console.log('✅ 获取组织文档成功，文档数量:', data?.length || 0)
-    return data || []
-  },
 
-  // 删除组织
-  async deleteOrganization(organizationId: string, userId: string): Promise<void> {
-    console.log('🗑️ 删除组织:', { organizationId, userId })
+    // 获取用户管理的组织的未读申请数量
+    const managedOrgs = await this.getUserManagedOrganizations(userId)
+    let orgRequestCount = 0
     
-    // 1. 检查用户是否为组织管理员
-    const userRole = await this.getUserRoleInOrganization(userId, organizationId)
-    if (userRole !== 'admin') {
-      throw new Error('只有组织管理员才能删除组织')
-    }
-    
-    // 2. 检查组织是否还有项目
-    const { data: projects, error: projectError } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('organization_id', organizationId)
-    
-    if (projectError) {
-      console.error('❌ 检查组织项目失败:', projectError)
-      throw projectError
-    }
-    
-    if (projects && projects.length > 0) {
-      throw new Error('无法删除组织：组织内还有项目，请先删除所有项目')
-    }
-    
-    // 3. 删除组织相关数据（按依赖关系顺序删除）
-    try {
-      // 删除组织文档（包括组织智慧库）
-      const { error: docsError } = await supabase
-        .from('documents')
-        .delete()
-        .eq('organization_id', organizationId)
-      
-      if (docsError) {
-        console.error('❌ 删除组织文档失败:', docsError)
-        throw docsError
-      }
-      
-      // 删除组织加入申请
-      const { error: requestsError } = await supabase
+    for (const org of managedOrgs) {
+      const { count, error } = await supabase
         .from('organization_join_requests')
-        .delete()
-        .eq('organization_id', organizationId)
+        .select('*', { count: 'exact', head: true })
+        .eq('organization_id', org.id)
+        .eq('status', 'pending')
+        .eq('is_read', false)
       
-      if (requestsError) {
-        console.error('❌ 删除组织申请失败:', requestsError)
-        throw requestsError
+      if (!error && count) {
+        orgRequestCount += count
       }
-      
-      // 删除用户-组织关联
-      const { error: membersError } = await supabase
-        .from('user_organizations')
-        .delete()
-        .eq('organization_id', organizationId)
-      
-      if (membersError) {
-        console.error('❌ 删除组织成员关系失败:', membersError)
-        throw membersError
-      }
-      
-      // 最后删除组织本身
-      const { error: orgError } = await supabase
-        .from('organizations')
-        .delete()
-        .eq('id', organizationId)
-      
-      if (orgError) {
-        console.error('❌ 删除组织失败:', orgError)
-        throw orgError
-      }
-      
-      console.log('✅ 组织删除成功')
-      
-    } catch (error) {
-      console.error('❌ 删除组织过程中出现错误:', error)
-      throw error
     }
-  },
 
-  // ===== 文档管理 API =====
-  
-  // 创建文档（自动关联组织ID）
-  async createDocument(
-    projectId: string,
-    userId: string,
-    title: string,
-    content: string,
-    metadata: Record<string, any> = {}
-  ): Promise<Document> {
-    // 获取项目信息以获取organization_id
-    const { data: project, error: projectError } = await supabase
-      .from('projects')
-      .select('organization_id')
-      .eq('id', projectId)
-      .single()
+    // 获取用户管理的项目的未读申请数量
+    const { data: managedProjects, error: projectError } = await supabase
+      .from('project_members')
+      .select('project_id')
+      .eq('user_id', userId)
+      .eq('role_in_project', 'manager')
+
+    let projectRequestCount = 0
     
-    if (projectError) throw projectError
-    
+    if (!projectError && managedProjects) {
+      const projectIds = managedProjects.map(pm => pm.project_id)
+      
+      if (projectIds.length > 0) {
+        const { count, error } = await supabase
+          .from('project_join_requests')
+          .select('*', { count: 'exact', head: true })
+          .in('project_id', projectIds)
+          .eq('status', 'pending')
+          .eq('is_read', false)
+        
+        if (!error && count) {
+          projectRequestCount = count
+        }
+      }
+    }
+
+    // 待处理邀请数量（针对当前用户）
+    let pendingInvitationCount = 0
+    try {
+      const { data: authUser } = await supabase.auth.getUser()
+      const currentEmail = authUser.user?.email
+      const currentUserId = authUser.user?.id
+      if (currentEmail || currentUserId) {
+        const { count, error } = await supabase
+          .from('invitations')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .or([
+            currentUserId ? `invitee_id.eq.${currentUserId}` : '',
+            currentEmail ? `invitee_email.eq.${currentEmail}` : ''
+          ].filter(Boolean).join(','))
+        if (!error && typeof count === 'number') pendingInvitationCount = count
+      }
+    } catch (e) {
+      console.warn('统计待处理邀请失败：', e)
+    }
+
+    // 仅按“未读/待处理”显示红点
+    return (notificationCount || 0) + orgRequestCount + projectRequestCount + pendingInvitationCount
+  }
+}
+
+// 邀请系统API
+export const invitationAPI = {
+  /**
+   * 发送邀请
+   * @param invitation 邀请参数
+   * @returns 创建的邀请记录
+   */
+  async sendInvitation(invitation: {
+    invitee_email: string
+    invitation_type: 'organization' | 'project'
+    target_id: string
+    target_name: string
+    message?: string
+  }): Promise<Invitation> {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('用户未登录，无法发送邀请')
+
+    // 检查是否已经发送过相同的邀请（允许 0 行返回，不将其视为错误）
+    const { data: existingInvitation, error: existingError } = await supabase
+      .from('invitations')
+      .select('*')
+      .eq('inviter_id', user.id)
+      .eq('invitee_email', invitation.invitee_email)
+      .eq('invitation_type', invitation.invitation_type)
+      .eq('target_id', invitation.target_id)
+      .eq('status', 'pending')
+      .maybeSingle()
+
+    if (existingError && existingError.code !== 'PGRST116') { // 非“未找到”错误
+      throw new Error(`检查重复邀请失败：${existingError.message || existingError.details || existingError.hint || '未知错误'}`)
+    }
+
+    if (existingInvitation) {
+      throw new Error('已经向该邮箱发送过相同的邀请，请等待对方回复')
+    }
+
+    // 通过安全的 RPC 获取被邀请者 user_id（如果存在）
+    const { data: inviteeId, error: inviteeQueryError } = await supabase
+      .rpc('get_user_id_by_email', { p_email: invitation.invitee_email })
+
+    if (inviteeQueryError) {
+      throw new Error(`查询被邀请者信息失败：${inviteeQueryError.message || inviteeQueryError.details || '未知错误'}`)
+    }
+
+    // 插入邀请
     const { data, error } = await supabase
-      .from('documents')
+      .from('invitations')
       .insert({
-        project_id: projectId,
-        user_id: userId,
-        organization_id: project.organization_id,
-        title,
-        content,
-        metadata,
-        embedding: null
+        inviter_id: user.id,
+        invitee_email: invitation.invitee_email,
+        invitee_id: inviteeId || null,
+        invitation_type: invitation.invitation_type,
+        target_id: invitation.target_id,
+        target_name: invitation.target_name,
+        message: invitation.message
       })
       .select()
       .single()
-    
-    if (error) throw error
+
+    if (error) {
+      throw new Error(`创建邀请失败：${error.message || error.details || error.hint || '未知错误'}`)
+    }
+
+    // 创建发送者的通知记录（失败不阻断主流程）
+    const { error: notifySenderError } = await supabase.from('notifications').insert({
+      user_id: user.id,
+      type: 'invitation_sent',
+      title: `邀请已发送`,
+      message: `您已向 ${invitation.invitee_email} 发送加入${invitation.invitation_type === 'organization' ? '组织' : '项目'} "${invitation.target_name}" 的邀请`,
+      metadata: { invitation_id: data.id }
+    })
+    if (notifySenderError) {
+      console.warn('创建发送者通知失败：', notifySenderError)
+    }
+
+    // 如果被邀请者已注册，创建接收者的通知记录（失败不阻断）
+    if (inviteeId) {
+      const { error: notifyReceiverError } = await supabase.from('notifications').insert({
+        user_id: inviteeId as string,
+        type: 'invitation_received',
+        title: `收到邀请`,
+        message: `${user.email} 邀请您加入${invitation.invitation_type === 'organization' ? '组织' : '项目'} "${invitation.target_name}"`,
+        metadata: { invitation_id: data.id }
+      })
+      if (notifyReceiverError) {
+        console.warn('创建接收者通知失败：', notifyReceiverError)
+      }
+    }
+
     return data
   },
 
-  // 获取组织的所有文档
-  async getOrganizationDocuments(organizationId: string): Promise<Document[]> {
+  // 获取发送的邀请
+  async getSentInvitations(userId: string): Promise<Invitation[]> {
     const { data, error } = await supabase
-      .from('documents')
+      .from('invitations')
       .select('*')
-      .eq('organization_id', organizationId)
+      .eq('inviter_id', userId)
       .order('created_at', { ascending: false })
-    
+
     if (error) throw error
     return data || []
   },
 
-  // 获取项目的所有文档
-  async getProjectDocuments(projectId: string): Promise<Document[]> {
-    const { data, error } = await supabase
-      .from('documents')
+  // 获取收到的邀请
+  async getReceivedInvitations(userEmail: string, userId?: string): Promise<Invitation[]> {
+    let query = supabase
+      .from('invitations')
       .select('*')
-      .eq('project_id', projectId)
+      .eq('invitee_email', userEmail)
       .order('created_at', { ascending: false })
-    
+
+    if (userId) {
+      query = query.or(`invitee_id.eq.${userId}`)
+    }
+
+    const { data, error } = await query
+
     if (error) throw error
     return data || []
   },
 
-  // ===== 聊天记录管理 API =====
-  
-  // 删除单条聊天记录
-  async deleteChatRecord(recordId: string): Promise<void> {
-    console.log('🗑️ 删除聊天记录:', recordId)
-    
-    const { error } = await supabase
-      .from('chat_history')
-      .delete()
-      .eq('id', recordId)
-    
-    if (error) {
-      console.error('❌ 删除聊天记录失败:', error)
-      throw error
-    }
-    
-    console.log('✅ 聊天记录删除成功')
-  },
+  // 响应邀请（接受或拒绝）
+  async respondToInvitation(invitationId: string, response: 'accepted' | 'rejected', responseMessage?: string): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('用户未登录')
 
-  // 清空用户消息内容（保留AI回复）
-  async clearUserMessage(userContent: string, timestamp: Date, userId: string): Promise<void> {
-    console.log('🗑️ 清空用户消息:', { userContent, timestamp, userId })
-    
-    // 查找匹配的聊天记录
-    const { data: records, error: findError } = await supabase
-      .from('chat_history')
+    // 获取邀请详情
+    const { data: invitation, error: invitationError } = await supabase
+      .from('invitations')
       .select('*')
-      .eq('user_id', userId)
-      .eq('content', userContent)
-      .gte('created_at', new Date(timestamp.getTime() - 5000).toISOString())
-      .lte('created_at', new Date(timestamp.getTime() + 5000).toISOString())
-    
-    if (findError) {
-      console.error('❌ 查找聊天记录失败:', findError)
-      throw findError
-    }
-    
-    if (!records || records.length === 0) {
-      console.log('⚠️ 未找到匹配的聊天记录')
-      return
-    }
-    
-    // 清空用户消息内容并检查是否需要删除记录
-    for (const record of records) {
-      // 先检查AI回复是否为空
-      const aiContentEmpty = !record.ai_content || record.ai_content.trim() === ''
-      
-      if (aiContentEmpty) {
-        // 如果AI回复也为空，直接删除整条记录
-        await this.deleteChatRecord(record.id)
-        console.log('✅ 记录已完全删除（AI回复也为空）')
-      } else {
-        // 如果AI回复不为空，只清空用户消息
-        const { error: updateError } = await supabase
-          .from('chat_history')
-          .update({ content: '' })
-          .eq('id', record.id)
-        
-        if (updateError) {
-          console.error('❌ 清空用户消息失败:', updateError)
-          throw updateError
-        }
-        console.log('✅ 用户消息已清空，AI回复保留')
-      }
-    }
-    
-    console.log('✅ 用户消息清空操作完成')
-  },
-
-  // 清空AI回复内容（保留用户消息）- 改为通过时间戳范围查找
-  async clearAIMessage(originalUserContent: string, timestamp: Date, userId: string): Promise<void> {
-    console.log('🗑️ 清空AI回复:', { originalUserContent, timestamp, userId })
-    
-    // 通过时间戳范围查找聊天记录，不依赖content内容
-    const { data: records, error: findError } = await supabase
-      .from('chat_history')
-      .select('*')
-      .eq('user_id', userId)
-      .gte('created_at', new Date(timestamp.getTime() - 10000).toISOString()) // 扩大到前后10秒
-      .lte('created_at', new Date(timestamp.getTime() + 10000).toISOString())
-    
-    if (findError) {
-      console.error('❌ 查找聊天记录失败:', findError)
-      throw findError
-    }
-    
-    if (!records || records.length === 0) {
-      console.log('⚠️ 未找到匹配的聊天记录')
-      return
-    }
-    
-    console.log('🔍 找到的记录:', records.map(r => ({ 
-      id: r.id, 
-      content: r.content?.substring(0, 50) + '...', 
-      ai_content: r.ai_content?.substring(0, 50) + '...',
-      created_at: r.created_at 
-    })))
-    
-    // 清空AI回复内容并检查是否需要删除记录
-    for (const record of records) {
-      // 检查这条记录是否有AI回复内容
-      if (!record.ai_content || record.ai_content.trim() === '') {
-        console.log('⚠️ 记录中AI回复已为空，跳过:', record.id)
-        continue
-      }
-      
-      // 先检查用户消息是否为空
-      const userContentEmpty = !record.content || record.content.trim() === ''
-      
-      if (userContentEmpty) {
-        // 如果用户消息也为空，直接删除整条记录
-        await this.deleteChatRecord(record.id)
-        console.log('✅ 记录已完全删除（用户消息也为空）:', record.id)
-      } else {
-        // 如果用户消息不为空，只清空AI回复
-        const { error: updateError } = await supabase
-          .from('chat_history')
-          .update({ ai_content: '' })
-          .eq('id', record.id)
-        
-        if (updateError) {
-          console.error('❌ 清空AI回复失败:', updateError)
-          throw updateError
-        }
-        console.log('✅ AI回复已清空，用户消息保留:', record.id)
-      }
-    }
-    
-    console.log('✅ AI回复清空操作完成')
-  },
-
-  // 检查并删除空记录（当用户消息和AI回复都为空时）- 保留此方法以备其他地方使用
-  async checkAndDeleteEmptyRecord(recordId: string): Promise<void> {
-    const { data: record, error: getError } = await supabase
-      .from('chat_history')
-      .select('content, ai_content')
-      .eq('id', recordId)
+      .eq('id', invitationId)
       .single()
-    
-    if (getError) {
-      console.error('❌ 获取记录失败:', getError)
-      return
+
+    if (invitationError) throw invitationError
+    if (!invitation) throw new Error('邀请不存在')
+
+    // 检查邀请是否已过期
+    if (new Date(invitation.expires_at) < new Date()) {
+      throw new Error('邀请已过期')
     }
-    
-    // 如果用户消息和AI回复都为空，删除整条记录
-    if ((!record.content || record.content.trim() === '') && 
-        (!record.ai_content || record.ai_content.trim() === '')) {
-      await this.deleteChatRecord(recordId)
-      console.log('✅ 空记录已删除')
+
+    // 更新邀请状态
+    const { error: updateError } = await supabase
+      .from('invitations')
+      .update({
+        status: response,
+        response_message: responseMessage,
+        invitee_id: user.id
+      })
+      .eq('id', invitationId)
+
+    if (updateError) throw updateError
+
+    // 如果接受邀请，添加用户到组织或项目
+    if (response === 'accepted') {
+      if (invitation.invitation_type === 'organization') {
+        // 添加到组织
+        await organizationAPI.addMember(invitation.target_id, user.id, 'member')
+      } else {
+        // 添加到项目
+        const { error: projectError } = await supabase
+          .from('project_members')
+          .insert({
+            project_id: invitation.target_id,
+            user_id: user.id,
+            role_in_project: 'member'
+          })
+        
+        if (projectError && !projectError.message.includes('duplicate')) {
+          throw projectError
+        }
+      }
     }
+
+    // 通知邀请者
+    await supabase.from('notifications').insert({
+      user_id: invitation.inviter_id,
+      type: response === 'accepted' ? 'invitation_accepted' : 'invitation_rejected',
+      title: response === 'accepted' ? '邀请已接受' : '邀请已拒绝',
+      message: `${user.email} ${response === 'accepted' ? '接受了' : '拒绝了'}您的邀请加入${invitation.invitation_type === 'organization' ? '组织' : '项目'} "${invitation.target_name}"${responseMessage ? `，回复：${responseMessage}` : ''}`,
+      metadata: { invitation_id: invitationId }
+    })
   },
 
-  // 根据用户消息内容和时间戳删除对应的AI回复（保留原方法以兼容）
-  async deleteChatPair(userContent: string, timestamp: Date, userId: string): Promise<void> {
-    console.log('🗑️ 删除聊天对话对:', { userContent, timestamp, userId })
-    
-    // 查找匹配的聊天记录（用户消息和AI回复通常在同一条记录中）
-    const { data: records, error: findError } = await supabase
-      .from('chat_history')
-      .select('*')
+  // 获取用户可以邀请的组织列表
+  async getUserManagedOrganizations(userId: string): Promise<Organization[]> {
+    return organizationAPI.getUserManagedOrganizations(userId)
+  },
+
+  // 获取用户可以邀请的项目列表
+  async getUserManagedProjects(userId: string): Promise<Project[]> {
+    const { data, error } = await supabase
+      .from('project_members')
+      .select(`
+        project_id,
+        projects!inner(*)
+      `)
       .eq('user_id', userId)
-      .eq('content', userContent)
-      .gte('created_at', new Date(timestamp.getTime() - 5000).toISOString()) // 前后5秒范围
-      .lte('created_at', new Date(timestamp.getTime() + 5000).toISOString())
-    
-    if (findError) {
-      console.error('❌ 查找聊天记录失败:', findError)
-      throw findError
-    }
-    
-    if (!records || records.length === 0) {
-      console.log('⚠️ 未找到匹配的聊天记录')
-      return
-    }
-    
-    // 删除找到的记录
-    for (const record of records) {
-      await this.deleteChatRecord(record.id)
-    }
-    
-    console.log('✅ 聊天对话对删除成功')
+      .eq('role_in_project', 'manager')
+
+    if (error) throw error
+    return data?.map(pm => pm.projects).filter(Boolean) || []
   }
 }

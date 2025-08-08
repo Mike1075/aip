@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
-import { organizationAPI } from '@/lib/supabase'
+import { organizationAPI, invitationAPI } from '@/lib/supabase'
 
 export function useUnreadMessages() {
   const { user } = useAuth()
@@ -39,16 +39,15 @@ export function useUnreadMessages() {
       // 3. 🆕 获取用户收到的申请状态变化通知（未读）
       try {
         console.log('📔 开始获取用户通知...')
-        const unreadNotifications = await organizationAPI.getUnreadNotificationCount(user.id)
-        console.log('📔 用户未读通知数量:', unreadNotifications)
-        totalUnread += unreadNotifications
-        
-        // 同时获取所有通知看看有什么
-        const allNotifications = await organizationAPI.getUserNotifications(user.id, 10)
-        console.log('📔 用户最近10条通知:', allNotifications)
+        const unreadCount = await organizationAPI.getUnreadCount(user.id)
+        console.log('📔 用户未读消息总数:', unreadCount)
+        // 注意：getUnreadCount 已经包含了所有类型的未读消息，所以我们直接使用它
+        setUnreadCount(unreadCount)
+        return // 直接返回，不需要累加
       } catch (error) {
         console.error('❌ 获取通知失败:', error)
-        console.log('通知功能可能未完全实现或数据库表不存在，跳过通知计数')
+        console.log('通知功能可能未完全实现或数据库表不存在，使用旧方法计数')
+        // 如果新方法失败，继续使用旧的累加方法
       }
 
       setUnreadCount(totalUnread)

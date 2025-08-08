@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react'
 import { Building2, Users, Crown, Plus, ChevronRight, Star, Trash2 } from 'lucide-react'
 import { Organization, Project, organizationAPI } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { FloatingChatBot } from './FloatingChatBot'
+import { InviteModal } from './InviteModal'
 
 interface MyOrganizationsProps {
   onSelectOrganization: (org: Organization) => void
@@ -9,11 +11,12 @@ interface MyOrganizationsProps {
 }
 
 export function MyOrganizations({ onSelectOrganization, onCreateOrganization }: MyOrganizationsProps) {
-  const { user } = useAuth()
+  const { user, signOut, isGuest } = useAuth()
   const [myOrganizations, setMyOrganizations] = useState<Organization[]>([])
   const [orgProjects, setOrgProjects] = useState<Record<string, Project[]>>({})
   const [loading, setLoading] = useState(true)
   const [deletingOrg, setDeletingOrg] = useState<string | null>(null)
+  const [showInviteModal, setShowInviteModal] = useState(false)
 
   useEffect(() => {
     if (user) {
@@ -80,6 +83,7 @@ export function MyOrganizations({ onSelectOrganization, onCreateOrganization }: 
 
   return (
     <div>
+
         {/* 页面标题 */}
         <div className="text-center mb-10">
           <h1 className="text-4xl font-bold text-secondary-900 mb-4">
@@ -231,6 +235,16 @@ export function MyOrganizations({ onSelectOrganization, onCreateOrganization }: 
               )
             })}
           </div>
+        )}
+
+        {/* 浮动聊天机器人 - 不显示项目选择器，只显示组织选择器 */}
+        <FloatingChatBot showProjectSelector={false} />
+
+        {/* 邀请弹窗 */}
+        {showInviteModal && (
+          <InviteModal 
+            onClose={() => setShowInviteModal(false)}
+          />
         )}
     </div>
   )

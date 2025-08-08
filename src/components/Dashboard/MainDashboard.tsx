@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Building2, Users, Home, Settings, LogOut, User, Globe, Menu, Inbox } from 'lucide-react'
+import { Building2, Users, Home, Settings, LogOut, User, Globe, Menu, Inbox, Bot, Mail } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { Organization, Project } from '@/lib/supabase'
 import { Dashboard } from './Dashboard'
@@ -10,6 +10,8 @@ import { ProjectDetailPage } from './ProjectDetailPage'
 import { MyOrganizations } from './MyOrganizations'
 import { OrganizationSidebar } from './OrganizationSidebar'
 import { InteractionLog } from './InteractionLog'
+import { AIChat } from './AIChat'
+import { InviteModal } from './InviteModal'
 import { useUnreadMessages } from '@/hooks/use-unread-messages'
 
 type ViewType = 'dashboard' | 'my-organizations' | 'explore-organizations' | 'organization-detail' | 'project-settings' | 'project-detail' | 'create-organization'
@@ -22,6 +24,8 @@ export function MainDashboard() {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showInbox, setShowInbox] = useState(false)
+  const [showAIChat, setShowAIChat] = useState(false)
+  const [showInviteModal, setShowInviteModal] = useState(false)
   const [isExploringOrganization, setIsExploringOrganization] = useState(false) // 标记是否是在探索模式
   const { unreadCount, refreshUnreadCount, forceRefresh } = useUnreadMessages()
 
@@ -276,6 +280,15 @@ export function MainDashboard() {
             
             {/* 用户菜单 */}
             <div className="flex items-center gap-3">
+              {/* 全局AI聊天按钮 */}
+              <button
+                onClick={() => setShowAIChat(true)}
+                className="p-2 hover:bg-primary-100 rounded-lg transition-colors relative group"
+                title="AI助手"
+              >
+                <Bot className="h-5 w-5 text-primary-600 group-hover:text-primary-700" />
+              </button>
+
               {user && !isGuest && (
                 <button
                   onClick={() => setShowInbox(true)}
@@ -284,7 +297,7 @@ export function MainDashboard() {
                     forceRefresh()
                   }}
                   className="p-2 hover:bg-secondary-100 rounded-lg transition-colors relative"
-                  title="收件箱 (双击强制刷新)"
+                  title="消息盒子 (双击强制刷新)"
                 >
                   <Inbox className="h-5 w-5 text-secondary-600" />
                   {unreadCount > 0 && (
@@ -318,6 +331,19 @@ export function MainDashboard() {
                   
                   {showUserMenu && (
                     <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg border border-secondary-200 py-2 z-50">
+                      {/* 调试信息 */}
+                      {console.log('🔍 用户菜单调试:', { user: user?.email, isGuest })}
+                      {/* 临时强制显示邀请按钮来测试 */}
+                      <button
+                        onClick={() => {
+                          setShowInviteModal(true)
+                          setShowUserMenu(false)
+                        }}
+                        className="w-full px-4 py-2 text-left text-sm text-secondary-700 hover:bg-secondary-50 flex items-center gap-2"
+                      >
+                        <Mail className="h-4 w-4" />
+                        发送邀请 {isGuest ? '(游客模式)' : '(已登录)'}
+                      </button>
                       <button
                         onClick={() => {
                           signOut()
@@ -359,12 +385,30 @@ export function MainDashboard() {
         onSelectOrganization={handleSidebarOrganizationSelect}
       />
 
-      {/* 收件箱 */}
+      {/* 消息盒子 */}
       {showInbox && (
-        <InteractionLog onClose={() => {
-          setShowInbox(false)
-          forceRefresh() // 关闭收件箱时强制刷新，确保权限变更生效
-        }} />
+        <InteractionLog 
+          onClose={() => {
+            setShowInbox(false)
+            forceRefresh() // 关闭收件箱时强制刷新，确保权限变更生效
+          }}
+          onUnreadCountChange={refreshUnreadCount} // 传递刷新未读计数的回调
+        />
+      )}
+
+      {/* 全局AI聊天 */}
+      {showAIChat && (
+        <AIChat 
+          onClose={() => setShowAIChat(false)}
+          organization={selectedOrganization || undefined}
+        />
+      )}
+
+      {/* 邀请弹窗 */}
+      {showInviteModal && (
+        <InviteModal 
+          onClose={() => setShowInviteModal(false)}
+        />
       )}
     </div>
   )

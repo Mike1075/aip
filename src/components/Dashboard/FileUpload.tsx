@@ -77,37 +77,25 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
     'image/gif',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'text/plain',
-    'text/markdown'  // 添加 Markdown 支持
+    'text/plain'
   ]
 
-  const getFileIcon = (file: File | { type?: string; name?: string }) => {
-    // 安全地检查文件扩展名来识别Markdown文件
-    const fileName = file.name?.toLowerCase() || ''
-    const fileType = file.type || ''
-    const isMarkdown = fileName.endsWith('.md') || fileName.endsWith('.markdown')
-    
-    if (fileType.startsWith('image/')) return '🖼️'
-    if (fileType === 'application/pdf') return '📄'
-    if (fileType.includes('word')) return '📝'
-    if (isMarkdown) return '📋'  // 通过文件扩展名识别Markdown
-    if (fileType === 'text/plain') return '📰'
-    if (fileType === 'text/markdown') return '📋'  // MIME类型识别Markdown
+  const getFileIcon = (file: File) => {
+    if (file.type.startsWith('image/')) return '🖼️'
+    if (file.type === 'application/pdf') return '📄'
+    if (file.type.includes('word')) return '📝'
+    if (file.type === 'text/plain') return '📰'
     return '📁'
   }
 
   const validateFile = (file: File) => {
-    // 检查文件扩展名，因为浏览器对.md文件的MIME类型识别不一致
-    const fileName = file.name?.toLowerCase() || ''
-    const isMarkdown = fileName.endsWith('.md') || fileName.endsWith('.markdown')
-    
-    if (!acceptedTypes.includes(file.type) && !isMarkdown) {
-      return '不支持的文件类型。请上传PDF、图片、Word文档、文本文件或Markdown文件。'
+    if (!acceptedTypes.includes(file.type)) {
+      return '不支持的文件类型。请上传PDF、图片、Word文档或文本文件。'
     }
     if (file.size > 50 * 1024 * 1024) { // 50MB
       return '文件大小不能超过50MB'
     }
-    return undefined
+    return null
   }
 
   const handleFiles = useCallback((files: FileList) => {
@@ -386,12 +374,12 @@ export function FileUpload({ projectId, userId, onUploadSuccess, onClose }: File
               拖拽文件到此处或点击选择
             </h3>
             <p className="text-sm text-secondary-500 mb-4">
-              支持 PDF、图片、Word文档、文本文件、Markdown文件 (最大50MB)
+              支持 PDF、图片、Word文档、文本文件 (最大50MB)
             </p>
             <input
               type="file"
               multiple
-              accept=".pdf,.jpg,.jpeg,.png,.gif,.doc,.docx,.txt,.md"
+              accept=".pdf,.jpg,.jpeg,.png,.gif,.doc,.docx,.txt"
               onChange={onFileSelect}
               className="hidden"
               id="file-input"

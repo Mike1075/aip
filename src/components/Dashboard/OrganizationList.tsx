@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Building2, Users, Eye, Lock, ChevronRight, Plus, X, UserPlus } from 'lucide-react'
 import { Organization, Project, organizationAPI } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { FloatingChatBot } from './FloatingChatBot'
 
 interface OrganizationListProps {
   onSelectOrganization: (org: Organization) => void
@@ -376,6 +377,9 @@ export function OrganizationList({ onSelectOrganization, showCreateModal: initia
           </div>
         </div>
       )}
+
+      {/* 浮动聊天机器人 - 不显示项目选择器，只显示组织选择器 */}
+      <FloatingChatBot showProjectSelector={false} />
     </div>
   )
 }

@@ -1,10 +1,18 @@
 import React, { useState, useEffect } from 'react'
-import { MessageSquare as LogIcon, Users, FolderOpen, Clock, Check, X, User, Send, Inbox, Eye, Bell } from 'lucide-react'
-import { organizationAPI, OrganizationJoinRequest, supabase, Notification } from '@/lib/supabase'
+import { MessageSquare as LogIcon, Users, FolderOpen, Clock, Check, X, User, Send, Inbox, Eye, Bell, Trash2, Eraser, Mail, Building2 } from 'lucide-react'
+import { organizationAPI, OrganizationJoinRequest, supabase, Notification, invitationAPI, Invitation } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
+import { InvitationResponse } from './InvitationResponse'
+import { InvitationCard } from './InvitationCard'
+import { formatDistanceToNow } from 'date-fns'
+import { zhCN } from 'date-fns/locale'
+
+// 为 Invitation 扩展一个 inviter_name 字段以展示
+type InvitationWithInviter = Invitation & { inviter_name?: string }
 
 interface InteractionLogProps {
   onClose: () => void
+  onUnreadCountChange?: () => void
 }
 
 type RequestType = 'organization' | 'project' | 'notification'
@@ -28,12 +36,14 @@ interface UnifiedInteraction {
   originalRequest: any
 }
 
-export function InteractionLog({ onClose }: InteractionLogProps) {
+export function InteractionLog({ onClose, onUnreadCountChange }: InteractionLogProps) {
   const { user } = useAuth()
   const [interactions, setInteractions] = useState<UnifiedInteraction[]>([])
   const [loading, setLoading] = useState(true)
   const [processing, setProcessing] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'all' | 'received' | 'sent' | 'notifications'>('all')
+  const [invitations, setInvitations] = useState<InvitationWithInviter[]>([])
+  const [sentInvitations, setSentInvitations] = useState<InvitationWithInviter[]>([])
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
 
   useEffect(() => {
@@ -120,6 +130,10 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
         console.log('📋 用户通知:', notifications)
         
         notifications.forEach((notification: Notification) => {
+          // 跳过邀请类通知，避免与“收到的邀请/发送的邀请”重复
+          if (notification.type === 'invitation_received' || notification.type === 'invitation_sent') {
+            return
+          }
           allInteractions.push({
             id: notification.id,
             type: 'notification',
@@ -129,7 +143,8 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
             targetName: notification.metadata?.organization_name || notification.metadata?.project_name || '系统通知',
             otherPartyName: '系统',
             otherPartyEmail: '',
-            message: notification.message,
+            // 避免在详情区重复显示“申请理由”
+            message: undefined,
             status: notification.is_read ? 'read' : 'unread',
             createdAt: notification.created_at,
             organizationId: notification.metadata?.organization_id,
@@ -174,6 +189,32 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
         console.log('📊 项目申请查询错误:', allProjectError)
       } catch (dbError) {
         console.error('❌ 直接查询数据库失败:', dbError)
+      }
+
+      // 加载邀请数据
+      console.log('💌 加载邀请数据...')
+      try {
+        const [receivedInvites, sentInvites] = await Promise.all([
+          invitationAPI.getReceivedInvitations(user.email, user.id),
+          invitationAPI.getSentInvitations(user.id)
+        ])
+        
+        // 补充邀请者名称
+        const enrichInvites = async (invites: Invitation[]): Promise<InvitationWithInviter[]> => {
+          const inviterIds = Array.from(new Set(invites.map(i => i.inviter_id)))
+          const { data: users } = await supabase.from('users').select('id,name').in('id', inviterIds)
+          const idToName = new Map((users || []).map(u => [u.id, u.name || '']))
+          return invites.map(i => ({ ...i, inviter_name: idToName.get(i.inviter_id) }))
+        }
+
+        setInvitations(await enrichInvites(receivedInvites))
+        setSentInvitations(await enrichInvites(sentInvites))
+        console.log('✅ 邀请数据加载完成:', { 
+          received: receivedInvites.length, 
+          sent: sentInvites.length 
+        })
+      } catch (invitationError) {
+        console.error('❌ 加载邀请数据失败:', invitationError)
       }
     } catch (error) {
       console.error('加载交互日志失败:', error)
@@ -307,12 +348,243 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
     }
   }
 
-  const toggleExpanded = (itemId: string) => {
+  const handleMarkAsRead = async (interaction: UnifiedInteraction) => {
+    if (!user) return
+    
+    try {
+      // 根据交互类型标记为已读
+      if (interaction.type === 'notification') {
+        await organizationAPI.markNotificationAsRead(interaction.id)
+      } else if (interaction.type === 'organization' && (interaction.status === 'approved' || interaction.status === 'rejected')) {
+        await organizationAPI.markOrganizationRequestAsRead(interaction.id)
+      } else if (interaction.type === 'project' && (interaction.status === 'approved' || interaction.status === 'rejected')) {
+        await organizationAPI.markProjectRequestAsRead(interaction.id)
+      }
+      
+      // 更新本地状态
+      setInteractions(prev => prev.map(item => 
+        item.id === interaction.id 
+          ? { 
+              ...item, 
+              status: item.type === 'notification' ? 'read' : item.status,
+              originalRequest: item.originalRequest ? { ...item.originalRequest, is_read: true } : item.originalRequest
+            }
+          : item
+      ))
+      
+      // 通知父组件刷新未读计数
+      if (onUnreadCountChange) {
+        onUnreadCountChange()
+      }
+    } catch (error) {
+      console.error('标记已读失败:', error)
+    }
+  }
+
+  const handleDeleteInteraction = async (interaction: UnifiedInteraction) => {
+    if (!user) return
+    
+    // 确认删除
+    if (!confirm('确定要删除这条消息吗？此操作无法撤销。')) {
+      return
+    }
+    
+    try {
+      console.log('🗑️ 开始删除消息:', interaction)
+      
+      // 根据交互类型删除
+      if (interaction.type === 'notification') {
+        console.log('🔔 删除通知，ID:', interaction.id)
+        // 删除通知
+        const { data, error } = await supabase
+          .from('notifications')
+          .delete()
+          .eq('id', interaction.id)
+          .select()
+        
+        console.log('🔔 删除通知结果:', { data, error })
+        if (error) throw error
+        
+      } else if (interaction.type === 'organization') {
+        console.log('🏢 删除组织申请，ID:', interaction.id)
+        // 删除组织申请记录
+        const { data, error } = await supabase
+          .from('organization_join_requests')
+          .delete()
+          .eq('id', interaction.id)
+          .select()
+        
+        console.log('🏢 删除组织申请结果:', { data, error })
+        if (error) throw error
+        
+      } else if (interaction.type === 'project') {
+        console.log('📁 删除项目申请，ID:', interaction.id)
+        // 删除项目申请记录
+        const { data, error } = await supabase
+          .from('project_join_requests')
+          .delete()
+          .eq('id', interaction.id)
+          .select()
+        
+        console.log('📁 删除项目申请结果:', { data, error })
+        if (error) throw error
+      }
+      
+      console.log('✅ 数据库删除成功，更新本地状态')
+      
+      // 从本地状态中移除
+      setInteractions(prev => prev.filter(item => item.id !== interaction.id))
+      
+      // 通知父组件刷新未读计数
+      if (onUnreadCountChange) {
+        onUnreadCountChange()
+      }
+      
+      console.log('✅ 删除完成')
+      alert('消息已删除')
+    } catch (error: any) {
+      console.error('❌ 删除消息失败:', error)
+      console.error('❌ 错误详情:', error.message, error.details, error.hint)
+      alert(`删除失败：${error.message || '请重试'}`)
+    }
+  }
+
+  // 一键清空已完成的消息
+  const handleClearCompleted = async () => {
+    if (!user) return
+    
+    // 获取可以删除的消息
+    const deletableInteractions = interactions.filter(canDelete)
+    
+    if (deletableInteractions.length === 0) {
+      alert('没有可清空的消息')
+      return
+    }
+    
+    // 确认清空
+    if (!confirm(`确定要清空 ${deletableInteractions.length} 条已完成的消息吗？此操作无法撤销。\n\n将保留所有待处理的申请和请求。`)) {
+      return
+    }
+    
+    try {
+      console.log('🧹 开始批量清空消息:', deletableInteractions)
+      
+      let successCount = 0
+      let errorCount = 0
+      
+      // 分类处理不同类型的消息
+      const notifications = deletableInteractions.filter(i => i.type === 'notification')
+      const orgRequests = deletableInteractions.filter(i => i.type === 'organization')
+      const projectRequests = deletableInteractions.filter(i => i.type === 'project')
+      
+      // 批量删除通知
+      if (notifications.length > 0) {
+        console.log('🔔 批量删除通知:', notifications.length, '条')
+        const notificationIds = notifications.map(n => n.id)
+        const { error } = await supabase
+          .from('notifications')
+          .delete()
+          .in('id', notificationIds)
+        
+        if (error) {
+          console.error('❌ 删除通知失败:', error)
+          errorCount += notifications.length
+        } else {
+          successCount += notifications.length
+        }
+      }
+      
+      // 批量删除组织申请
+      if (orgRequests.length > 0) {
+        console.log('🏢 批量删除组织申请:', orgRequests.length, '条')
+        const orgRequestIds = orgRequests.map(r => r.id)
+        const { error } = await supabase
+          .from('organization_join_requests')
+          .delete()
+          .in('id', orgRequestIds)
+        
+        if (error) {
+          console.error('❌ 删除组织申请失败:', error)
+          errorCount += orgRequests.length
+        } else {
+          successCount += orgRequests.length
+        }
+      }
+      
+      // 批量删除项目申请
+      if (projectRequests.length > 0) {
+        console.log('📁 批量删除项目申请:', projectRequests.length, '条')
+        const projectRequestIds = projectRequests.map(r => r.id)
+        const { error } = await supabase
+          .from('project_join_requests')
+          .delete()
+          .in('id', projectRequestIds)
+        
+        if (error) {
+          console.error('❌ 删除项目申请失败:', error)
+          errorCount += projectRequests.length
+        } else {
+          successCount += projectRequests.length
+        }
+      }
+      
+      // 更新本地状态 - 移除已删除的消息
+      const deletedIds = new Set(deletableInteractions.map(i => i.id))
+      setInteractions(prev => prev.filter(item => !deletedIds.has(item.id)))
+      
+      // 通知父组件刷新未读计数
+      if (onUnreadCountChange) {
+        onUnreadCountChange()
+      }
+      
+      console.log('✅ 批量清空完成')
+      
+      if (errorCount > 0) {
+        alert(`清空完成！成功删除 ${successCount} 条消息，${errorCount} 条消息删除失败。`)
+      } else {
+        alert(`清空完成！成功删除 ${successCount} 条消息。`)
+      }
+      
+    } catch (error: any) {
+      console.error('❌ 批量清空失败:', error)
+      alert(`清空失败：${error.message || '请重试'}`)
+    }
+  }
+
+  // 判断是否可以删除
+  const canDelete = (interaction: UnifiedInteraction) => {
+    // 通知可以直接删除
+    if (interaction.type === 'notification') {
+      return true
+    }
+    
+    // 邀请通知或申请通知只有在状态为完成（approved/rejected）后才可删除
+    if (interaction.type === 'organization' || interaction.type === 'project') {
+      return interaction.status === 'approved' || interaction.status === 'rejected'
+    }
+    
+    return false
+  }
+
+  const toggleExpanded = async (itemId: string) => {
+    if (!user) return
+    
+    const interaction = interactions.find(i => i.id === itemId)
+    if (!interaction) return
+
     const newExpanded = new Set(expandedItems)
     if (newExpanded.has(itemId)) {
       newExpanded.delete(itemId)
     } else {
       newExpanded.add(itemId)
+      
+      // 当展开未读消息时，自动标记为已读
+      if ((interaction.type === 'notification' && interaction.status === 'unread') ||
+          ((interaction.type === 'organization' || interaction.type === 'project') && 
+           (interaction.status === 'approved' || interaction.status === 'rejected') &&
+           interaction.originalRequest?.is_read === false)) {
+        await handleMarkAsRead(interaction)
+      }
     }
     setExpandedItems(newExpanded)
   }
@@ -322,6 +594,36 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
     if (activeTab === 'notifications') return interaction.interactionType === 'notification'
     return interaction.interactionType === activeTab
   })
+
+  // 获取"发送的"栏目需要显示的邀请
+  const getSentInvitations = () => {
+    if (activeTab === 'sent') {
+      return sentInvitations
+    }
+    return []
+  }
+
+  // 刷新邀请并触发未读计数刷新
+  const reloadInvitations = async () => {
+    if (!user) return
+    try {
+      const [receivedInvites, sentInvites] = await Promise.all([
+        invitationAPI.getReceivedInvitations(user!.email, user!.id),
+        invitationAPI.getSentInvitations(user!.id)
+      ])
+      // 补充邀请者名称
+      const enrichInvites = async (invites: Invitation[]): Promise<InvitationWithInviter[]> => {
+        const inviterIds = Array.from(new Set(invites.map(i => i.inviter_id)))
+        const { data: users } = await supabase.from('users').select('id,name').in('id', inviterIds)
+        const idToName = new Map((users || []).map(u => [u.id, u.name || '']))
+        return invites.map(i => ({ ...i, inviter_name: idToName.get(i.inviter_id) }))
+      }
+      setInvitations(await enrichInvites(receivedInvites))
+      setSentInvitations(await enrichInvites(sentInvites))
+    } finally {
+      onUnreadCountChange?.()
+    }
+  }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -333,18 +635,34 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
               <LogIcon className="h-6 w-6 text-primary-600" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-secondary-900">交互日志</h2>
+              <h2 className="text-xl font-semibold text-secondary-900">消息盒子</h2>
               <p className="text-sm text-secondary-600">
                 查看所有申请的发送和接收记录
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-secondary-100 rounded-lg transition-colors"
-          >
-            <X className="h-5 w-5 text-secondary-600" />
-          </button>
+          <div className="flex items-center gap-2">
+            {/* 一键清空按钮 */}
+            {interactions.filter(canDelete).length > 0 && (
+              <button
+                onClick={handleClearCompleted}
+                className="flex items-center gap-2 px-3 py-2 text-sm bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-colors"
+                title="清空所有已完成的消息（保留待处理的申请）"
+              >
+                <Eraser className="h-4 w-4" />
+                清空已完成
+                <span className="bg-orange-200 text-orange-800 px-1.5 py-0.5 rounded-full text-xs">
+                  {interactions.filter(canDelete).length}
+                </span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-secondary-100 rounded-lg transition-colors"
+            >
+              <X className="h-5 w-5 text-secondary-600" />
+            </button>
+          </div>
         </div>
 
         {/* 选项卡 */}
@@ -377,7 +695,7 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
                 : 'border-transparent text-secondary-600 hover:text-secondary-900'
             }`}
           >
-            发送的 ({interactions.filter(i => i.interactionType === 'sent').length})
+            发送的 ({interactions.filter(i => i.interactionType === 'sent').length + sentInvitations.length})
           </button>
           <button
             onClick={() => setActiveTab('notifications')}
@@ -397,7 +715,7 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
             </div>
-          ) : filteredInteractions.length === 0 ? (
+          ) : (activeTab === 'sent' ? (filteredInteractions.length === 0 && sentInvitations.length === 0) : filteredInteractions.length === 0) ? (
             <div className="text-center py-12">
               <LogIcon className="h-12 w-12 text-secondary-300 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-secondary-900 mb-2">
@@ -406,132 +724,388 @@ export function InteractionLog({ onClose }: InteractionLogProps) {
               <p className="text-secondary-600">
                 {activeTab === 'all' && '还没有任何申请记录'}
                 {activeTab === 'received' && '还没有收到任何申请'}
-                {activeTab === 'sent' && '还没有发送任何申请'}
+                {activeTab === 'sent' && '还没有发送任何申请或邀请'}
                 {activeTab === 'notifications' && '还没有任何通知'}
               </p>
             </div>
           ) : (
             <div className="p-4 space-y-2">
-              {filteredInteractions.map((interaction) => {
-                const isExpanded = expandedItems.has(interaction.id)
-                const isPending = interaction.status === 'pending'
-                
-                return (
-                  <div
-                    key={interaction.id}
-                    className={`border rounded-lg transition-all duration-200 ${
-                      isPending && interaction.interactionType === 'received'
-                        ? 'border-orange-200 bg-orange-50' 
-                        : 'border-secondary-200 bg-white hover:bg-secondary-50'
-                    }`}
-                  >
-                    {/* 简约的默认视图 */}
-                    <div 
-                      className="p-3 cursor-pointer flex items-center justify-between"
-                      onClick={() => toggleExpanded(interaction.id)}
-                    >
-                      <div className="flex items-center gap-3 flex-1">
-                        <div className="flex-shrink-0">
-                          {getInteractionIcon(interaction.type, interaction.interactionType)}
-                        </div>
-                        
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-secondary-900 truncate">
-                              {interaction.title} - {interaction.targetName}
-                            </span>
-                            {getStatusBadge(interaction.status)}
-                          </div>
-                          <div className="text-sm text-secondary-600 truncate">
-                            {interaction.interactionType === 'sent' ? '发送给' : '来自'} {interaction.otherPartyName}
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="text-xs text-secondary-500">
-                          {formatDate(interaction.createdAt)}
-                        </span>
-                        <div className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
-                          <svg className="w-4 h-4 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </div>
+              {/* "发送的"tab特殊处理 - 包含邀请 */}
+              {activeTab === 'sent' ? (
+                <>
+                  {/* 发送的申请 */}
+                  {filteredInteractions.length > 0 && (
+                    <div className="mb-6">
+                      <h4 className="text-sm font-medium text-secondary-700 mb-3 flex items-center gap-2">
+                        <Send className="h-4 w-4" />
+                        发送的申请 ({filteredInteractions.length})
+                      </h4>
+                      <div className="space-y-3">
+                        {filteredInteractions.map((interaction) => {
+                          const isExpanded = expandedItems.has(interaction.id)
+                          const isPending = interaction.status === 'pending'
+                          
+                          return (
+                            <div
+                              key={interaction.id}
+                              className={`border rounded-lg transition-all duration-200 ${
+                                isPending && interaction.interactionType === 'received'
+                                  ? 'border-orange-200 bg-orange-50' 
+                                  : 'border-secondary-200 bg-white hover:bg-secondary-50'
+                              }`}
+                            >
+                              {/* 简约的默认视图 */}
+                              <div 
+                                className="p-3 cursor-pointer flex items-center justify-between hover:bg-secondary-25 group"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  toggleExpanded(interaction.id)
+                                }}
+                              >
+                                <div className="flex items-center gap-3 flex-1">
+                                  <div className="flex-shrink-0">
+                                    {getInteractionIcon(interaction.type, interaction.interactionType)}
+                                  </div>
+                                  
+                                  <div className="flex-1 min-w-0">
+                                    <h3 className="text-sm font-medium text-secondary-900 truncate">
+                                      {interaction.title}
+                                    </h3>
+                                    <p className="text-xs text-secondary-600 truncate">
+                                      {interaction.description}
+                                    </p>
+                                  </div>
+                                </div>
+                                
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  {getStatusBadge(interaction.status)}
+                                  {canDelete(interaction) && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        handleDeleteInteraction(interaction)
+                                      }}
+                                      className="p-1 hover:bg-red-100 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                      title="删除消息"
+                                    >
+                                      <Trash2 className="h-4 w-4 text-secondary-400 hover:text-red-600" />
+                                    </button>
+                                  )}
+                                  <span className="text-xs text-secondary-500">
+                                    {formatDate(interaction.createdAt)}
+                                  </span>
+                                  <div className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+                                    <svg className="w-4 h-4 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                  </div>
+                                </div>
+                              </div>
+                              {/* 展开的详细信息 */}
+                              {isExpanded && (
+                                <div className="px-3 pb-3 border-t border-secondary-100">
+                                  <div className="pt-3 space-y-3">
+                                    <p className="text-sm text-secondary-700">
+                                      {interaction.description}
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                      <User className="h-4 w-4 text-secondary-500" />
+                                      <span className="text-sm font-medium text-secondary-900">
+                                        {interaction.otherPartyName}
+                                      </span>
+                                      {interaction.otherPartyEmail && (
+                                        <span className="text-sm text-secondary-600">
+                                          ({interaction.otherPartyEmail})
+                                        </span>
+                                      )}
+                                    </div>
+                                    {interaction.message && (
+                                      <div className="bg-secondary-50 rounded-md p-3">
+                                        <p className="text-sm text-secondary-700">
+                                          <span className="font-medium">申请理由：</span>
+                                          {interaction.message || '（未填写）'}
+                                        </p>
+                                      </div>
+                                    )}
+                                    {interaction.reviewedAt && (
+                                      <div className="text-xs text-secondary-500">
+                                        处理时间：{formatDate(interaction.reviewedAt)}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     </div>
+                  )}
 
-                    {/* 展开的详细信息 */}
-                    {isExpanded && (
-                      <div className="px-3 pb-3 border-t border-secondary-100">
-                        <div className="pt-3 space-y-3">
-                          {/* 描述信息 */}
-                          <p className="text-sm text-secondary-700">
-                            {interaction.description}
-                          </p>
-                          
-                          {/* 用户信息 */}
-                          <div className="flex items-center gap-2">
-                            <User className="h-4 w-4 text-secondary-500" />
-                            <span className="text-sm font-medium text-secondary-900">
-                              {interaction.otherPartyName}
-                            </span>
-                            {interaction.otherPartyEmail && (
-                              <span className="text-sm text-secondary-600">
-                                ({interaction.otherPartyEmail})
-                              </span>
-                            )}
-                          </div>
-
-                          {/* 申请理由 */}
-                          {interaction.message && (
-                            <div className="bg-secondary-50 rounded-md p-3">
-                              <p className="text-sm text-secondary-700">
-                                <span className="font-medium">申请理由：</span>
-                                {interaction.message || '（未填写）'}
+                  {/* 发送的邀请 */}
+                  {sentInvitations.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-medium text-secondary-700 mb-3 flex items-center gap-2">
+                        <Send className="h-4 w-4" />
+                        发送的邀请 ({sentInvitations.length})
+                      </h4>
+                      <div className="space-y-3">
+                        {sentInvitations.map((invitation) => (
+                          <div key={invitation.id} className="border border-secondary-200 rounded-lg p-4">
+                            {/* 保持原有“发送的邀请”展示 */}
+                            {/* 邀请类型图标 */}
+                            <div className={`p-2 rounded-lg ${
+                              invitation.invitation_type === 'organization' 
+                                ? 'bg-blue-100' 
+                                : 'bg-green-100'
+                            }`}>
+                              {invitation.invitation_type === 'organization' ? (
+                                <Building2 className="h-4 w-4 text-blue-600" />
+                              ) : (
+                                <FolderOpen className="h-4 w-4 text-green-600" />
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium text-secondary-900">
+                                邀请 {invitation.invitee_email}
+                              </p>
+                              <p className="text-sm text-secondary-600">
+                                加入{invitation.invitation_type === 'organization' ? '组织' : '项目'}: {invitation.target_name}
+                              </p>
+                              <p className="text-xs text-secondary-500 mt-1">
+                                {formatDistanceToNow(new Date(invitation.created_at), { addSuffix: true, locale: zhCN })}
                               </p>
                             </div>
-                          )}
-
-                          {/* 处理时间 */}
-                          {interaction.reviewedAt && (
-                            <div className="text-xs text-secondary-500">
-                              处理时间：{formatDate(interaction.reviewedAt)}
+                            <div>
+                              {invitation.status === 'pending' && (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                  <Clock className="w-3 h-3 mr-1" />
+                                  等待回复
+                                </span>
+                              )}
+                              {invitation.status === 'accepted' && (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                  <Check className="w-3 h-3 mr-1" />
+                                  已接受
+                                </span>
+                              )}
+                              {invitation.status === 'rejected' && (
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                  <X className="w-3 h-3 mr-1" />
+                                  已拒绝
+                                </span>
+                              )}
                             </div>
-                          )}
+                            {invitation.message && (
+                              <div className="mt-3 p-3 bg-secondary-50 rounded-lg">
+                                <p className="text-sm text-secondary-700">{invitation.message}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* 其他tab：在上方插入“收到的邀请”，其余保留原申请/通知列表 */
+                <>
+                  {(activeTab === 'received' || activeTab === 'all') && invitations.length > 0 && (
+                    <div className="mb-4">
+                      <h4 className="text-sm font-medium text-secondary-700 mb-3 flex items-center gap-2">
+                        <Mail className="h-4 w-4" />
+                        收到的邀请 ({invitations.length})
+                      </h4>
+                      <div className="space-y-3">
+                        {invitations.map((invitation) => (
+                          <InvitationCard key={invitation.id} invitation={invitation as any} onResponded={reloadInvitations} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-                          {/* 操作按钮 */}
-                          {interaction.interactionType === 'received' && interaction.status === 'pending' && (
-                            <div className="flex items-center gap-2 pt-2">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleRequest(interaction.id, 'approve')
-                                }}
-                                disabled={processing === interaction.id}
-                                className="flex items-center gap-1 px-3 py-1.5 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm disabled:opacity-50"
-                              >
-                                <Check className="h-3 w-3" />
-                                {processing === interaction.id ? '处理中...' : '批准'}
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleRequest(interaction.id, 'reject')
-                                }}
-                                disabled={processing === interaction.id}
-                                className="flex items-center gap-1 px-3 py-1.5 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors text-sm disabled:opacity-50"
-                              >
-                                <X className="h-3 w-3" />
-                                {processing === interaction.id ? '处理中...' : '拒绝'}
-                              </button>
-                            </div>
+                  {filteredInteractions.map((interaction) => {
+                  const isExpanded = expandedItems.has(interaction.id)
+                  const isPending = interaction.status === 'pending'
+                  
+                  return (
+                    <div
+                      key={interaction.id}
+                      className={`border rounded-lg transition-all duration-200 ${
+                        isPending && interaction.interactionType === 'received'
+                          ? 'border-orange-200 bg-orange-50' 
+                          : 'border-secondary-200 bg-white hover:bg-secondary-50'
+                      }`}
+                    >
+                      {/* 简约的默认视图 */}
+                      <div 
+                        className="p-3 cursor-pointer flex items-center justify-between hover:bg-secondary-25 group"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          toggleExpanded(interaction.id)
+                        }}
+                      >
+                        <div className="flex items-center gap-3 flex-1">
+                          <div className="flex-shrink-0">
+                            {getInteractionIcon(interaction.type, interaction.interactionType)}
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-sm font-medium text-secondary-900 truncate">
+                              {interaction.title}
+                            </h3>
+                            <p className="text-xs text-secondary-600 truncate">
+                              {interaction.description}
+                            </p>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {/* 状态标识 */}
+                          {getStatusBadge(interaction.status)}
+                          
+                          {/* 未读标识 */}
+                          {((interaction.type === 'notification' && interaction.status === 'unread') ||
+                            ((interaction.type === 'organization' || interaction.type === 'project') && 
+                             (interaction.status === 'approved' || interaction.status === 'rejected') &&
+                             interaction.originalRequest?.is_read === false)) && (
+                            <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                           )}
+                          
+                          {/* 删除按钮 */}
+                          {canDelete(interaction) && (
+                            <button
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                handleDeleteInteraction(interaction)
+                              }}
+                              className="p-1 hover:bg-red-100 rounded transition-colors opacity-0 group-hover:opacity-100"
+                              title="删除消息"
+                            >
+                              <Trash2 className="h-4 w-4 text-secondary-400 hover:text-red-600" />
+                            </button>
+                          )}
+                          
+                          <span className="text-xs text-secondary-500">
+                            {formatDate(interaction.createdAt)}
+                          </span>
+                          <div className={`transform transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>
+                            <svg className="w-4 h-4 text-secondary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
                         </div>
                       </div>
-                    )}
-                  </div>
-                )
-              })}
+
+                      {/* 展开的详细信息 */}
+                      {isExpanded && (
+                        <div className="px-3 pb-3 border-t border-secondary-100">
+                          <div className="pt-3 space-y-3">
+                            <p className="text-sm text-secondary-700">
+                              {interaction.description}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <User className="h-4 w-4 text-secondary-500" />
+                              <span className="text-sm font-medium text-secondary-900">
+                                {interaction.otherPartyName}
+                              </span>
+                              {interaction.otherPartyEmail && (
+                                <span className="text-sm text-secondary-600">
+                                  ({interaction.otherPartyEmail})
+                                </span>
+                              )}
+                            </div>
+
+                            {/* 仅对申请类显示“申请理由”，通知不重复内容 */}
+                            {interaction.type !== 'notification' && interaction.message && (
+                              <div className="bg-secondary-50 rounded-md p-3">
+                                <p className="text-sm text-secondary-700">
+                                  <span className="font-medium">申请理由：</span>
+                                  {interaction.message || '（未填写）'}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* 处理时间 */}
+                            {interaction.reviewedAt && (
+                              <div className="text-xs text-secondary-500">
+                                处理时间：{formatDate(interaction.reviewedAt)}
+                              </div>
+                            )}
+
+                            {/* 操作按钮（保持原有） */}
+                            {interaction.interactionType === 'received' && interaction.status === 'pending' && (
+                              <div className="flex items-center gap-2 pt-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleRequest(interaction.id, 'approve')
+                                  }}
+                                  disabled={processing === interaction.id}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition-colors text-sm disabled:opacity-50"
+                                >
+                                  <Check className="h-3 w-3" />
+                                  {processing === interaction.id ? '处理中...' : '批准'}
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleRequest(interaction.id, 'reject')
+                                  }}
+                                  disabled={processing === interaction.id}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors text-sm disabled:opacity-50"
+                                >
+                                  <X className="h-3 w-3" />
+                                  {processing === interaction.id ? '处理中...' : '拒绝'}
+                                </button>
+                              </div>
+                            )}
+
+                            {/* 标记为已读按钮 - 用于已处理但未读的申请 */}
+                            {interaction.interactionType === 'received' && 
+                             (interaction.status === 'approved' || interaction.status === 'rejected') &&
+                             interaction.originalRequest?.is_read === false && (
+                              <div className="flex items-center gap-2 pt-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleMarkAsRead(interaction)
+                                  }}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  标记为已读
+                                </button>
+                              </div>
+                            )}
+
+                            {/* 通知标记为已读按钮 */}
+                            {interaction.type === 'notification' && interaction.status === 'unread' && (
+                              <div className="flex items-center gap-2 pt-2">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleMarkAsRead(interaction)
+                                  }}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors text-sm"
+                                >
+                                  <Eye className="h-3 w-3" />
+                                  标记为已读
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                </>
+              )}
             </div>
           )}
         </div>
