@@ -74,11 +74,17 @@ export function InteractionLog({ onClose, onUnreadCountChange }: InteractionLogP
         managedOrgs = []
       }
       
-      for (const org of managedOrgs) {
-        const orgRequests = await organizationAPI.getOrganizationJoinRequests(org.id)
-        console.log(`📋 组织 ${org.name} 的申请:`, orgRequests)
-        
-        orgRequests.forEach((request: any) => {
+      // 并行拉取每个组织的申请，显著降低等待时间
+      const orgReqBatches = await Promise.all(
+        managedOrgs.map(async (org: any) => {
+          const reqs = await organizationAPI.getOrganizationJoinRequests(org.id)
+          return { org, reqs }
+        })
+      )
+
+      for (const batch of orgReqBatches) {
+        const { org, reqs } = batch
+        reqs.forEach((request: any) => {
           allInteractions.push({
             id: request.id,
             type: 'organization',
@@ -98,7 +104,7 @@ export function InteractionLog({ onClose, onUnreadCountChange }: InteractionLogP
         })
       }
 
-      // 2. 获取用户发送的请求
+      // 2) 获取用户发送的请求（批量查询组织名称）
       console.log('📤 获取发送的请求...')
       await loadSentRequests(allInteractions)
 
@@ -156,40 +162,9 @@ export function InteractionLog({ onClose, onUnreadCountChange }: InteractionLogP
         console.log('获取通知失败，可能是数据库表不存在:', error)
       }
 
-      console.log('📨 所有交互:', allInteractions)
-      console.log('📨 交互数量:', allInteractions.length)
-
-      // 按时间倒序排列
+            // 按时间倒序排列
       allInteractions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      
       setInteractions(allInteractions)
-      console.log('✅ 交互数据设置完成，当前interactions状态:', allInteractions)
-      
-      // 临时添加更多调试，看看实际数据库中的数据
-      console.log('🔍 最终结果检查:')
-      console.log('- managedOrgs数量:', managedOrgs.length)
-      console.log('- allInteractions数量:', allInteractions.length)
-      
-      // 直接查询数据库看看有没有数据
-      try {
-        console.log('🔍 直接查询数据库...')
-        const { data: allOrgRequests, error: allOrgError } = await supabase
-          .from('organization_join_requests')
-          .select('*')
-          .limit(10)
-        
-        const { data: allProjectRequests, error: allProjectError } = await supabase
-          .from('project_join_requests')
-          .select('*')
-          .limit(10)
-          
-        console.log('📊 数据库中的组织申请:', allOrgRequests)
-        console.log('📊 数据库中的项目申请:', allProjectRequests)
-        console.log('📊 组织申请查询错误:', allOrgError)
-        console.log('📊 项目申请查询错误:', allProjectError)
-      } catch (dbError) {
-        console.error('❌ 直接查询数据库失败:', dbError)
-      }
 
       // 加载邀请数据
       console.log('💌 加载邀请数据...')
@@ -231,7 +206,7 @@ export function InteractionLog({ onClose, onUnreadCountChange }: InteractionLogP
       const { data: sentOrgRequests, error: orgError } = await supabase
         .from('organization_join_requests')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', user!.id)
         .order('created_at', { ascending: false })
 
       if (!orgError && sentOrgRequests) {
@@ -424,34 +399,44 @@ export function InteractionLog({ onClose, onUnreadCountChange }: InteractionLogP
   // 一键清空已完成的消息（无确认弹窗）
   const handleClearCompleted = async () => {
     if (!user) return
-    const deletableInteractions = interactions.filter(canDelete)
-    if (deletableInteractions.length === 0) return
-
     try {
-      console.log('🧹 开始批量清空消息:', deletableInteractions.length)
+      setProcessing('clear')
+      // 可删除的交互
+      const deletableInteractions = interactions.filter(canDelete)
       const notifications = deletableInteractions.filter(i => i.type === 'notification')
       const orgRequests = deletableInteractions.filter(i => i.type === 'organization')
       const projectRequests = deletableInteractions.filter(i => i.type === 'project')
 
-      if (notifications.length > 0) {
-        const notificationIds = notifications.map(n => n.id)
-        await supabase.from('notifications').delete().in('id', notificationIds)
+      // 后端尝试删除（失败不阻断）
+      try {
+        if (notifications.length > 0) {
+          const ids = notifications.map(n => n.id)
+          await supabase.from('notifications').delete().in('id', ids)
+        }
+        if (orgRequests.length > 0) {
+          const orgRequestIds = orgRequests.map(r => r.id)
+          await supabase.from('organization_join_requests').delete().in('id', orgRequestIds)
+        }
+        if (projectRequests.length > 0) {
+          const projectRequestIds = projectRequests.map(r => r.id)
+          await supabase.from('project_join_requests').delete().in('id', projectRequestIds)
+        }
+        // 同步清理已完成的邀请
+        const deletableInviteIds = invitations.filter(i => i.status !== 'pending').map(i => i.id)
+        if (deletableInviteIds.length > 0) {
+          await supabase.from('invitations').delete().in('id', deletableInviteIds)
+        }
+      } catch (e) {
+        console.warn('⚠️ 批量清空存在部分失败：', e)
+      } finally {
+        // 前端直接过滤掉
+        const deletableIds = new Set(deletableInteractions.map(i => i.id))
+        setInteractions(prev => prev.filter(i => !deletableIds.has(i.id)))
+        setInvitations(prev => prev.filter(i => i.status === 'pending'))
+        onUnreadCountChange?.()
       }
-      if (orgRequests.length > 0) {
-        const orgRequestIds = orgRequests.map(r => r.id)
-        await supabase.from('organization_join_requests').delete().in('id', orgRequestIds)
-      }
-      if (projectRequests.length > 0) {
-        const projectRequestIds = projectRequests.map(r => r.id)
-        await supabase.from('project_join_requests').delete().in('id', projectRequestIds)
-      }
-    } catch (e) {
-      console.warn('⚠️ 批量清空存在部分失败：', e)
     } finally {
-      // 前端直接过滤掉
-      const deletableIds = new Set(deletableInteractions.map(i => i.id))
-      setInteractions(prev => prev.filter(i => !deletableIds.has(i.id)))
-      onUnreadCountChange?.()
+      setProcessing(null)
     }
   }
 
@@ -824,7 +809,7 @@ export function InteractionLog({ onClose, onUnreadCountChange }: InteractionLogP
                       </h4>
                       <div className="space-y-3">
                         {invitations.map((invitation) => (
-                          <InvitationCard key={invitation.id} invitation={invitation as any} onResponded={reloadInvitations} />
+                          <InvitationCard key={invitation.id} invitation={invitation as any} onResponded={reloadInvitations} onDeleted={(id) => setInvitations(prev => prev.filter(i => i.id !== id))} />
                         ))}
                       </div>
                     </div>

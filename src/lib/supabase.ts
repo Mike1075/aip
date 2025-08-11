@@ -221,7 +221,7 @@ export const organizationAPI = {
       .eq('user_id', userId)
     
     if (error) throw error
-    return (data?.map(item => item.organizations as Organization).filter(Boolean) as Organization[]) || []
+    return (data?.map((item: any) => item.organizations as unknown as Organization).filter(Boolean) as Organization[]) || []
   },
 
   // 创建组织
@@ -997,7 +997,7 @@ ${organization.description || '这是一个新创建的组织，暂无详细描�
 
   // 获取未读消息数量
   async getUnreadCount(userId: string): Promise<number> {
-    // 获取未读通知数量（排除邀请类通知，邀请在“收到的邀请”中处理）
+    // 获取未读通知数量（排除邀请类通知，邀请在"收到的邀请"中处理）
     const { count: notificationCount, error: notificationError } = await supabase
       .from('notifications')
       .select('*', { count: 'exact', head: true })
@@ -1011,20 +1011,19 @@ ${organization.description || '这是一个新创建的组织，暂无详细描�
       return 0
     }
 
-    // 获取用户管理的组织的未读申请数量
+    // 获取用户管理的组织的未读申请数量（批量 IN 查询，避免逐个组织循环）
     const managedOrgs = await this.getUserManagedOrganizations(userId)
     let orgRequestCount = 0
-    
-    for (const org of managedOrgs) {
+    const orgIds: string[] = (managedOrgs || []).map((org: any) => org.id)
+    if (orgIds.length > 0) {
       const { count, error } = await supabase
         .from('organization_join_requests')
         .select('*', { count: 'exact', head: true })
-        .eq('organization_id', org.id)
+        .in('organization_id', orgIds)
         .eq('status', 'pending')
         .eq('is_read', false)
-      
-      if (!error && count) {
-        orgRequestCount += count
+      if (!error && typeof count === 'number') {
+        orgRequestCount = count
       }
     }
 
@@ -1075,7 +1074,7 @@ ${organization.description || '这是一个新创建的组织，暂无详细描�
       console.warn('统计待处理邀请失败：', e)
     }
 
-    // 仅按“未读/待处理”显示红点
+    // 仅按"未读/待处理"显示红点
     return (notificationCount || 0) + orgRequestCount + projectRequestCount + pendingInvitationCount
   }
 }
@@ -1108,7 +1107,7 @@ export const invitationAPI = {
       .eq('status', 'pending')
       .maybeSingle()
 
-    if (existingError && existingError.code !== 'PGRST116') { // 非“未找到”错误
+    if (existingError && existingError.code !== 'PGRST116') { // 非"未找到"错误
       throw new Error(`检查重复邀请失败：${existingError.message || existingError.details || existingError.hint || '未知错误'}`)
     }
 
@@ -1265,6 +1264,25 @@ export const invitationAPI = {
     })
   },
 
+  // 删除邀请：邀请者可删除；被邀请者仅能删除已完成（非pending）的记录
+  async deleteInvitation(invitationId: string): Promise<void> {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) throw new Error('用户未登录')
+    const email = user.email || ''
+
+    const { error } = await supabase
+      .from('invitations')
+      .delete()
+      .eq('id', invitationId)
+      .or([
+        `inviter_id.eq.${user.id}`,
+        `invitee_id.eq.${user.id}`,
+        email ? `invitee_email.eq.${email}` : ''
+      ].filter(Boolean).join(','))
+
+    if (error) throw error
+  },
+
   // 获取用户可以邀请的组织列表
   async getUserManagedOrganizations(userId: string): Promise<Organization[]> {
     return organizationAPI.getUserManagedOrganizations(userId)
@@ -1282,6 +1300,6 @@ export const invitationAPI = {
       .eq('role_in_project', 'manager')
 
     if (error) throw error
-    return data?.map(pm => pm.projects).filter(Boolean) || []
+    return ((data || []).map((pm: any) => pm.projects as unknown as Project).filter(Boolean)) as Project[]
   }
 }

@@ -28,7 +28,7 @@ export function RoutedMainDashboard() {
   const [showInbox, setShowInbox] = useState(false)
   const { unreadCount, refreshUnreadCount } = useUnreadMessages()
   const [showInviteModal, setShowInviteModal] = useState(false)
-  
+
   // 数据状态
   const [selectedOrganization, setSelectedOrganization] = useState<Organization | null>(null)
   const [selectedProject, setSelectedProject] = useState<Project | null>(null)

@@ -79,95 +79,34 @@ export function AIChat({ onClose, organization, currentProject, showProjectSelec
 
   // 智能删除单个聊天消息
   const handleDeleteMessage = async (messageId: string, message: ChatMessage) => {
-    console.log('🚀 开始删除消息流程:', { messageId, message, userId: user?.id })
-    
-    if (!user?.id) {
-      console.error('❌ 用户未登录，无法删除消息')
-      alert('请先登录')
+    console.log('🗑️ 请求删除消息:', { messageId, role: message.role })
+
+    // 1) 总是先移除前端显示（乐观更新）
+    setMessages(prev => prev.filter(m => m.id !== messageId))
+
+    // 2) 判断是否为已持久化记录（形如 user-<uuid> / ai-<uuid>）
+    const isPersisted = messageId.includes('-')
+    if (!isPersisted) {
+      console.log('⚠️ 仅前端删除（未持久化的临时消息）:', messageId)
       return
     }
 
-    // 跳过删除欢迎消息和时间戳生成的消息
-    if (messageId === 'welcome') {
-      console.log('⚠️ 跳过删除欢迎消息')
-      alert('无法删除欢迎消息')
-      return
-    }
-
-    // 检查是否为历史消息（格式：user-uuid 或 ai-uuid）
-    if (!messageId.includes('-')) {
-      console.log('⚠️ 跳过删除临时消息（未保存到数据库）:', messageId)
-      alert('只能删除已保存的历史消息，刚发送的消息请等待保存后再删除')
-      return
-    }
-
-    // 检查UUID格式
+    // 3) 尝试解析记录ID；解析失败也仅前端删除
     const parts = messageId.split('-')
-    if (parts.length < 2) {
-      console.log('⚠️ 消息ID格式不正确:', messageId)
-      alert('消息ID格式错误')
+    const recordId = parts.slice(1).join('-')
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!recordId || !uuidRegex.test(recordId)) {
+      console.log('⚠️ 非标准ID，已仅前端删除:', messageId)
       return
     }
 
-    // 用户确认
-    if (!confirm('确定要删除这条消息吗？')) {
-      console.log('⚠️ 用户取消删除')
-      return
-    }
-
+    // 4) 后端删除（静默），失败不回滚前端
     try {
-      console.log('🗑️ 智能删除聊天消息:', { messageId, message })
-      
-      // 从消息ID中提取数据库记录ID
-      // messageId格式: "user-{uuid}" 或 "ai-{uuid}"
-      const parts = messageId.split('-')
-      const recordId = parts.slice(1).join('-') // 重新组合UUID，因为UUID本身包含连字符
-      
-      if (!recordId) {
-        console.error('❌ 无法解析消息ID:', messageId)
-        alert('消息ID格式错误')
-        return
-      }
-
-      // 简单的UUID格式验证
-      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      if (!uuidRegex.test(recordId)) {
-        console.error('❌ 无效的UUID格式:', recordId)
-        alert('无效的消息ID格式')
-        return
-      }
-
-      console.log('📋 准备删除记录ID:', recordId)
-
-      // 确定消息类型
-      const messageType = message.role === 'user' ? 'user' : 'ai'
-      console.log('📝 消息类型:', messageType)
-
-      // 先从UI中移除指定的消息
-      setMessages(prev => {
-        const filtered = prev.filter(msg => msg.id !== messageId)
-        console.log('🔄 UI消息过滤:', { 
-          原始消息数: prev.length, 
-          过滤后: filtered.length,
-          删除的消息ID: messageId 
-        })
-        return filtered
-      })
-      
-      // 调用新的智能删除API
-      console.log('🗄️ 调用数据库智能删除API...')
-      await deleteChatMessage(recordId, messageType)
-      console.log('✅ 聊天消息删除成功:', { recordId, messageType })
-      
-      // 重新加载聊天历史以确保UI与数据库同步
-      console.log('🔄 重新加载聊天历史...')
-      await refreshChatHistory()
-      
-    } catch (error) {
-      console.error('❌ 删除消息失败:', error)
-      alert(`删除失败: ${error instanceof Error ? error.message : '未知错误'}`)
-      // 如果删除失败，重新加载聊天历史恢复正确状态
-      await refreshChatHistory()
+      const type: 'user' | 'ai' = message.role === 'assistant' ? 'ai' : 'user'
+      await deleteChatMessage(recordId, type)
+      console.log('✅ 后端删除成功:', { recordId, type })
+    } catch (e) {
+      console.warn('⚠️ 后端删除失败（已保持前端已删效果）:', e)
     }
   }
 
@@ -187,7 +126,7 @@ export function AIChat({ onClose, organization, currentProject, showProjectSelec
       } else {
         welcomeContent = '您好！我是您的AI项目管理助手。我可以帮您回答问题、分析项目进度、分配任务等。您可以直接开始对话，也可以选择特定项目进行更精准的查询。'
       }
-
+      
       const welcomeMessage: ChatMessage = {
         id: 'welcome',
         role: 'assistant',
@@ -382,8 +321,8 @@ export function AIChat({ onClose, organization, currentProject, showProjectSelec
       const organizationId = organization?.id || ''
 
       const result = await callN8nRAGAgentLocal(
-        input.trim(),
-        projectId,
+        input.trim(), 
+        projectId, 
         organizationId
       )
 
@@ -438,130 +377,130 @@ export function AIChat({ onClose, organization, currentProject, showProjectSelec
       {/* 使用并排布局：左侧聊天窗 + 右侧上下文面板 */}
       <div className="flex items-start gap-4 mx-4 max-w-[1320px] w-full">
         <div className="bg-white rounded-xl shadow-xl w-full max-w-[960px] h-[600px] flex flex-col">
-          {/* 头部 */}
-          <div className="flex items-center justify-between p-4 border-b border-secondary-200">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary-100 rounded-lg">
-                <Bot className="h-5 w-5 text-primary-600" />
-              </div>
-              <div>
-                <h3 className="font-medium text-secondary-900">AI项目助手</h3>
-                <p className="text-sm text-secondary-500">智能项目管理顾问</p>
-              </div>
+        {/* 头部 */}
+        <div className="flex items-center justify-between p-4 border-b border-secondary-200">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-primary-100 rounded-lg">
+              <Bot className="h-5 w-5 text-primary-600" />
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleClearSession}
-                className="p-2 hover:bg-secondary-100 rounded-lg transition-colors group"
-                title="清空聊天记录"
-              >
-                <Trash2 className="h-4 w-4 text-secondary-500 group-hover:text-red-500" />
-              </button>
-              <button
-                onClick={onClose}
-                className="p-2 hover:bg-secondary-100 rounded-lg transition-colors"
-              >
-                <X className="h-5 w-5 text-secondary-600" />
-              </button>
+            <div>
+              <h3 className="font-medium text-secondary-900">AI项目助手</h3>
+              <p className="text-sm text-secondary-500">智能项目管理顾问</p>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleClearSession}
+              className="p-2 hover:bg-secondary-100 rounded-lg transition-colors group"
+              title="清空聊天记录"
+            >
+              <Trash2 className="h-4 w-4 text-secondary-500 group-hover:text-red-500" />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-secondary-100 rounded-lg transition-colors"
+            >
+              <X className="h-5 w-5 text-secondary-600" />
+            </button>
+          </div>
+        </div>
 
-          {/* 聊天消息区域 */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {isLoadingHistory ? (
-              <div className="flex items-center justify-center py-8">
-                <div className="flex items-center gap-2 text-secondary-500">
-                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary-500 border-t-transparent"></div>
-                  <span>加载中...</span>
-                </div>
+        {/* 聊天消息区域 */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {isLoadingHistory ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="flex items-center gap-2 text-secondary-500">
+                <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary-500 border-t-transparent"></div>
+                <span>加载中...</span>
               </div>
-            ) : (
-              <>
+            </div>
+          ) : (
+            <>
                 {/* 聊天消息列表 */}
-                {messages.map((message) => (
-                  <div
-                    key={message.id}
-                    className={`group flex items-start gap-3 ${
-                      message.role === 'user' ? 'justify-end' : 'justify-start'
-                    }`}
-                  >
-                    {message.role === 'assistant' && (
-                      <div className="p-2 bg-primary-100 rounded-lg">
-                        <Bot className="h-5 w-5 text-primary-600" />
-                      </div>
-                    )}
-                    <div className="flex items-start gap-2">
-                      <div
-                        className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                          message.role === 'user'
-                            ? 'bg-primary-600 text-white'
-                            : 'bg-secondary-100 text-secondary-900'
-                        }`}
-                      >
-                        {message.role === 'assistant' ? (
-                          <div className="text-sm prose prose-sm max-w-none prose-headings:text-secondary-900 prose-p:text-secondary-900 prose-strong:text-secondary-900 prose-code:text-secondary-800 prose-code:bg-secondary-200 prose-code:px-1 prose-code:rounded prose-pre:bg-secondary-200 prose-pre:text-secondary-900">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {message.content}
-                            </ReactMarkdown>
-                          </div>
-                        ) : (
-                          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                        )}
-                      </div>
-                      {/* 删除按钮 */}
-                      {message.id !== 'welcome' && (
-                        <div className="relative">
-                          <button
-                            onDoubleClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              handleDeleteMessage(message.id, message)
-                            }}
-                            onClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                            }}
-                            className={`opacity-30 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-100 peer cursor-pointer ${
-                              message.role === 'user' ? 'order-first' : ''
-                            }`}
-                            title="双击删除此消息"
-                          >
-                            <X className="h-3 w-3 text-red-500 hover:text-red-700" />
-                          </button>
-                          <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-800 text-white text-xs rounded whitespace-nowrap opacity-0 peer-hover:opacity-100 transition-opacity duration-0 pointer-events-none z-10">
-                            双击删除
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    {message.role === 'user' && (
-                      <div className="p-2 bg-secondary-200 rounded-lg">
-                        <User className="h-4 w-4 text-secondary-600" />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </>
-            )}
-
-            {isLoading && (
-              <div className="flex items-start gap-3">
+              {messages.map((message) => (
+            <div
+              key={message.id}
+              className={`group flex items-start gap-3 ${
+                message.role === 'user' ? 'justify-end' : 'justify-start'
+              }`}
+            >
+              {message.role === 'assistant' && (
                 <div className="p-2 bg-primary-100 rounded-lg">
                   <Bot className="h-5 w-5 text-primary-600" />
                 </div>
-                <div className="bg-secondary-100 px-4 py-2 rounded-lg">
-                  <div className="flex gap-1">
-                    <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                    <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+              )}
+              <div className="flex items-start gap-2">
+                <div
+                  className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
+                    message.role === 'user'
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-secondary-100 text-secondary-900'
+                  }`}
+                >
+                  {message.role === 'assistant' ? (
+                    <div className="text-sm prose prose-sm max-w-none prose-headings:text-secondary-900 prose-p:text-secondary-900 prose-strong:text-secondary-900 prose-code:text-secondary-800 prose-code:bg-secondary-200 prose-code:px-1 prose-code:rounded prose-pre:bg-secondary-200 prose-pre:text-secondary-900">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                  )}
+                </div>
+                      {/* 删除按钮 */}
+                {message.id !== 'welcome' && (
+                  <div className="relative">
+                    <button
+                      onDoubleClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        handleDeleteMessage(message.id, message)
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                      }}
+                      className={`opacity-30 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-100 peer cursor-pointer ${
+                        message.role === 'user' ? 'order-first' : ''
+                      }`}
+                      title="双击删除此消息"
+                    >
+                      <X className="h-3 w-3 text-red-500 hover:text-red-700" />
+                    </button>
+                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-800 text-white text-xs rounded whitespace-nowrap opacity-0 peer-hover:opacity-100 transition-opacity duration-0 pointer-events-none z-10">
+                      双击删除
+                    </div>
                   </div>
+                )}
+              </div>
+              {message.role === 'user' && (
+                <div className="p-2 bg-secondary-200 rounded-lg">
+                  <User className="h-4 w-4 text-secondary-600" />
+                </div>
+              )}
+            </div>
+          ))}
+            </>
+          )}
+          
+          {isLoading && (
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-primary-100 rounded-lg">
+                <Bot className="h-5 w-5 text-primary-600" />
+              </div>
+              <div className="bg-secondary-100 px-4 py-2 rounded-lg">
+                <div className="flex gap-1">
+                  <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                  <div className="w-2 h-2 bg-secondary-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                 </div>
               </div>
-            )}
-          </div>
+            </div>
+          )}
+        </div>
 
-          {/* 输入区域 */}
-          <div className="p-4 border-t border-secondary-200">
+        {/* 输入区域 */}
+        <div className="p-4 border-t border-secondary-200">
             {/* 当前项目上下文提示 */}
             {currentProject && organization && (
               <div className="mb-3 p-3 bg-primary-50 border border-primary-200 rounded-lg">
@@ -569,8 +508,8 @@ export function AIChat({ onClose, organization, currentProject, showProjectSelec
                   <div className="w-2 h-2 bg-primary-500 rounded-full"></div>
                   <span className="text-primary-700">
                     <strong>当前上下文：</strong>项目「{currentProject.name}」（{organization.name}）
-                  </span>
-                  <button
+                </span>
+              <button
                     onClick={() => {
                       setSelectedProjects([])
                       setSelectedOrganizations([])
@@ -579,30 +518,30 @@ export function AIChat({ onClose, organization, currentProject, showProjectSelec
                     title="点击切换到全局模式"
                   >
                     切换模式
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-end gap-3">
-              <div className="flex-1">
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="请输入您的问题..."
-                  className="input resize-none"
-                  rows={2}
-                />
-              </div>
-              <button
-                onClick={handleSend}
-                disabled={!input.trim() || isLoading}
-                className="btn-primary p-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="发送"
-              >
-                <Send className="h-5 w-5" />
               </button>
+                </div>
+            </div>
+          )}
+          
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="请输入您的问题..."
+                className="input resize-none"
+                rows={2}
+              />
+            </div>
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || isLoading}
+              className="btn-primary p-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                title="发送"
+            >
+                <Send className="h-5 w-5" />
+            </button>
             </div>
           </div>
         </div>

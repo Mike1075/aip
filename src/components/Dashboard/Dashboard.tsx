@@ -534,13 +534,13 @@ export function Dashboard({ organization }: DashboardProps) {
               <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
                 {/* 左侧：我的任务 */}
                 <div className="xl:col-span-1">
-                                      <CompactTaskList 
-                      tasks={myTasks} 
-                      projects={myCreatedProjects}
-                      userId={user?.id}
-                      onTaskStatusChange={handleTaskStatusChange}
+                  <CompactTaskList 
+                    tasks={myTasks} 
+                    projects={myCreatedProjects}
+                    userId={user?.id}
+                    onTaskStatusChange={handleTaskStatusChange}
                       onTaskUpdate={() => loadUserTasks(true)} 
-                    />
+                  />
                 </div>
                 
                 {/* 右侧：项目区域 */}

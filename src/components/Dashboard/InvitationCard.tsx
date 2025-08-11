@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Check, X, Building2, FolderOpen, Mail, Clock, Loader2 } from 'lucide-react'
+import { Check, X, Building2, FolderOpen, Mail, Clock, Loader2, Trash2 } from 'lucide-react'
 import { invitationAPI, Invitation } from '@/lib/supabase'
 import { formatDistanceToNow } from 'date-fns'
 import { zhCN } from 'date-fns/locale'
@@ -7,13 +7,26 @@ import { zhCN } from 'date-fns/locale'
 interface InvitationCardProps {
   invitation: Invitation
   onResponded?: () => void
+  onDeleted?: (id: string) => void
 }
 
-export function InvitationCard({ invitation, onResponded }: InvitationCardProps) {
+export function InvitationCard({ invitation, onResponded, onDeleted }: InvitationCardProps) {
   const [isResponding, setIsResponding] = useState(false)
   const [responseMessage, setResponseMessage] = useState('')
   const [showResponseInput, setShowResponseInput] = useState(false)
   const [pendingResponse, setPendingResponse] = useState<'accepted' | 'rejected' | null>(null)
+  const isOrg = invitation.invitation_type === 'organization'
+  const handleDelete = async () => {
+    // 乐观前端删除
+    onDeleted?.(invitation.id)
+    try {
+      await invitationAPI.deleteInvitation(invitation.id)
+      // 后台成功则触发未读刷新
+      onResponded?.()
+    } catch (e) {
+      console.warn('删除邀请失败（已保持前端删除效果）:', e)
+    }
+  }
 
   const handleResponse = async (response: 'accepted' | 'rejected') => {
     if (response === 'rejected' && !showResponseInput) {
@@ -50,28 +63,16 @@ export function InvitationCard({ invitation, onResponded }: InvitationCardProps)
       {/* 邀请头部信息 */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-start gap-3">
-          <div className={`p-2 rounded-lg ${
-            invitation.invitation_type === 'organization' 
-              ? 'bg-blue-100' 
-              : 'bg-green-100'
-          }`}>
-            {invitation.invitation_type === 'organization' ? (
-              <Building2 className={`h-4 w-4 ${
-                invitation.invitation_type === 'organization' 
-                  ? 'text-blue-600' 
-                  : 'text-green-600'
-              }`} />
+          <div className={`p-2 rounded-lg ${isOrg ? 'bg-blue-100' : 'bg-green-100'}`}>
+            {isOrg ? (
+              <Building2 className={`h-4 w-4 ${isOrg ? 'text-blue-600' : 'text-green-600'}`} />
             ) : (
-              <FolderOpen className={`h-4 w-4 ${
-                invitation.invitation_type === 'organization' 
-                  ? 'text-blue-600' 
-                  : 'text-green-600'
-              }`} />
+              <FolderOpen className={`h-4 w-4 ${isOrg ? 'text-blue-600' : 'text-green-600'}`} />
             )}
           </div>
           <div className="flex-1">
             <h4 className="font-medium text-secondary-900">
-              邀请加入{invitation.invitation_type === 'organization' ? '组织' : '项目'}
+              邀请加入{isOrg ? '组织' : '项目'}
             </h4>
             <p className="text-sm text-secondary-600 mt-1">
               <span className="font-medium">{invitation.target_name}</span>
@@ -106,6 +107,16 @@ export function InvitationCard({ invitation, onResponded }: InvitationCardProps)
             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
               已过期
             </span>
+          )}
+          {/* 删除按钮：仅非 pending 可见 */}
+          {invitation.status !== 'pending' && (
+            <button
+              onClick={handleDelete}
+              className="ml-2 p-1 rounded hover:bg-red-50"
+              title="删除这条邀请"
+            >
+              <Trash2 className="h-4 w-4 text-secondary-500 hover:text-red-600" />
+            </button>
           )}
         </div>
       </div>
