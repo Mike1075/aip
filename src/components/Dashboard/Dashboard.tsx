@@ -9,8 +9,9 @@ import { CreateProjectModal } from './CreateProjectModal'
 import { EditDescriptionModal } from './EditDescriptionModal'
 import { generatePath } from '@/config/routes'
 import { useOrganizationCache } from '@/hooks/use-data-cache'
-import { Plus, Building2, Users, Trophy, RefreshCw } from 'lucide-react'
+import { Plus, Building2, Users, Trophy, RefreshCw, Mail } from 'lucide-react'
 import { FloatingChatBot } from './FloatingChatBot'
+import { InviteModal } from './InviteModal'
 
 interface DashboardProps {
   organization?: Organization
@@ -39,6 +40,7 @@ export function Dashboard({ organization }: DashboardProps) {
   const [updatingDescription, setUpdatingDescription] = useState(false)
   const [userProjectPermissions, setUserProjectPermissions] = useState<Record<string, 'manager' | 'member' | 'none'>>({})
   const [isOrganizationMember, setIsOrganizationMember] = useState(false)
+  const [showInviteModal, setShowInviteModal] = useState(false)
 
   useEffect(() => {
     if (user && organization) {
@@ -84,12 +86,12 @@ export function Dashboard({ organization }: DashboardProps) {
       setUserProjectPermissions(permissions)
       
       // 分离我的项目（创建的+加入的）和组织中其他项目（我未参与的）
-      const myProjectsList = projects.filter(project => {
+      const myProjectsList = projects.filter((project: Project) => {
         // 检查是否是我创建的项目，或者我是项目成员
         return project.creator_id === user.id || permissions[project.id] !== 'none'
       })
       
-      const organizationList = projects.filter(project => {
+      const organizationList = projects.filter((project: Project) => {
         // 组织项目：不是我创建的，且我没有参与的项目
         return project.creator_id !== user.id && permissions[project.id] === 'none'
       })
@@ -109,9 +111,9 @@ export function Dashboard({ organization }: DashboardProps) {
           user.id,
           () => organizationAPI.getUserOrganizations(user.id)
         )
-        const isMember = userOrgs.some(userOrg => userOrg.id === organization.id)
+        const isMember = organization ? userOrgs.some((userOrg: Organization) => userOrg.id === organization.id) : false
         setIsOrganizationMember(isMember)
-        console.log(`🔍 用户 ${user.id} 在组织 ${organization.name} 的成员身份: ${isMember ? '是成员' : '非成员'}`)
+        console.log(`🔍 用户 ${user.id} 在组织 ${organization?.name ?? '-'} 的成员身份: ${isMember ? '是成员' : '非成员'}`)
       } catch (error) {
         console.error('检查组织成员身份失败:', error)
         setIsOrganizationMember(false)
@@ -560,13 +562,23 @@ export function Dashboard({ organization }: DashboardProps) {
                         </p>
                       </div>
                       {isOrganizationMember && (
-                        <button 
-                          onClick={() => setShowCreateProject(true)}
-                          className="ml-auto btn-primary flex items-center gap-2"
-                        >
-                          <Plus className="h-4 w-4" />
-                          创建项目
-                        </button>
+                        <div className="ml-auto flex items-center gap-2">
+                          <button 
+                            onClick={() => setShowInviteModal(true)}
+                            className="btn-secondary flex items-center gap-2"
+                            title="发送邀请"
+                          >
+                            <Mail className="h-4 w-4" />
+                            发送邀请
+                          </button>
+                          <button 
+                            onClick={() => setShowCreateProject(true)}
+                            className="btn-primary flex items-center gap-2"
+                          >
+                            <Plus className="h-4 w-4" />
+                            创建项目
+                          </button>
+                        </div>
                       )}
                     </div>
                     
@@ -675,6 +687,9 @@ export function Dashboard({ organization }: DashboardProps) {
         />
       )}
 
+      {showInviteModal && (
+        <InviteModal onClose={() => setShowInviteModal(false)} />
+      )}
     </div>
   )
 } 

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react'
-import { ArrowLeft, Plus, Check, Trash2, ChevronDown, ChevronRight, Users, Calendar, BarChart3, Upload, UserCog } from 'lucide-react'
+import { ArrowLeft, Plus, Check, Trash2, ChevronDown, ChevronRight, Users, Calendar, BarChart3, Upload, UserCog, Mail } from 'lucide-react'
 import { Project, Task, supabase, organizationAPI, Organization } from '@/lib/supabase'
 import { useAuth } from '@/contexts/AuthContext'
 import { FileUpload } from './FileUpload'
 import { TeamAvatars } from './TeamAvatars'
 import { FloatingChatBot } from './FloatingChatBot'
+import { InviteModal } from './InviteModal'
 
 interface ProjectDetailPageProps {
   project: Project
@@ -29,6 +30,7 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
   const [projectMembers, setProjectMembers] = useState<Array<{user_id: string, role_in_project: string, user?: {name?: string, email?: string}}>>([])
   const [projectOrganization, setProjectOrganization] = useState<Organization | undefined>()
   const [projectStatus, setProjectStatus] = useState<string>(project.status)
+  const [showInviteModal, setShowInviteModal] = useState(false)
 
   useEffect(() => {
     loadTasks()
@@ -464,14 +466,24 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
               <TeamAvatars members={projectMembers} />
             )}
             
+            {/* 上传/邀请并排布局 */}
             {!effectiveReadOnly && (
-              <button 
-                onClick={() => setShowFileUpload(true)}
-                className="w-full btn-secondary text-sm"
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                上传文档
-              </button>
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setShowFileUpload(true)}
+                  className="flex-1 btn-primary text-sm"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  上传文档
+                </button>
+                <button
+                  onClick={() => setShowInviteModal(true)}
+                  className="btn-secondary text-sm px-0 w-[88px] justify-center"
+                  title="邀请"
+                >
+                  邀请
+                </button>
+              </div>
             )}
             
             {effectiveReadOnly && (
@@ -732,6 +744,10 @@ export function ProjectDetailPage({ project, onBack, readOnly }: ProjectDetailPa
             />
           </div>
         </div>
+      )}
+
+      {showInviteModal && (
+        <InviteModal onClose={() => setShowInviteModal(false)} />
       )}
 
       {/* 浮动聊天机器人 - 传递当前项目和组织信息，隐藏项目选择器 */}

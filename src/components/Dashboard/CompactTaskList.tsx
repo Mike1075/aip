@@ -11,6 +11,11 @@ interface CompactTaskListProps {
   onTaskStatusChange?: (taskId: string, newStatus: string) => void
 }
 
+/**
+ * 任务紧凑列表
+ * - 点击行内圆圈：切换完成/未完成
+ * - 点击行内其他区域：打开简约详情抽屉
+ */
 export const CompactTaskList = memo(function CompactTaskList({ tasks, projects, userId, onTaskUpdate, onTaskStatusChange }: CompactTaskListProps) {
   const [completingTasks, setCompletingTasks] = useState<Set<string>>(new Set())
   const [animatingTasks, setAnimatingTasks] = useState<Set<string>>(new Set())
@@ -18,6 +23,8 @@ export const CompactTaskList = memo(function CompactTaskList({ tasks, projects, 
   const [addingTaskToProject, setAddingTaskToProject] = useState<string | null>(null) // 正在添加任务的项目
   const [newTaskTitle, setNewTaskTitle] = useState('') // 新任务标题
   const [creatingTask, setCreatingTask] = useState(false) // 创建任务加载状态
+  // 新增：选中的任务用于显示详情抽屉
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
 
   // 当tasks数组更新时，清理不存在的隐藏任务，避免状态不同步
   useEffect(() => {
@@ -46,6 +53,9 @@ export const CompactTaskList = memo(function CompactTaskList({ tasks, projects, 
     }
   }
 
+  /**
+   * 点击圆圈：切换完成状态
+   */
   const handleToggleComplete = async (task: Task) => {
     if (completingTasks.has(task.id)) return // 防止重复点击
 
@@ -290,12 +300,15 @@ export const CompactTaskList = memo(function CompactTaskList({ tasks, projects, 
               paddingBottom: animatingTasks.has(task.id) ? '0px' : '8px',
               transition: 'all 0.3s ease-in-out, max-height 0.25s ease-in-out 0.35s, margin-bottom 0.25s ease-in-out 0.35s, padding 0.25s ease-in-out 0.35s'
             }}
-            onClick={() => handleToggleComplete(task)}
+            onClick={() => setSelectedTask(task)}
           >
-            {/* 完成按钮 */}
+            {/* 完成按钮（仅点此切换完成） */}
             <button
               className="flex-shrink-0 transition-all duration-200 hover:scale-110"
               disabled={completingTasks.has(task.id)}
+              onClick={(e) => { e.stopPropagation(); handleToggleComplete(task) }}
+              aria-label="切换完成状态"
+              title={task.status === 'completed' ? '标记为未完成' : '标记为完成'}
             >
               {completingTasks.has(task.id) ? (
                 <div className="relative">
@@ -303,7 +316,7 @@ export const CompactTaskList = memo(function CompactTaskList({ tasks, projects, 
                   <div className="absolute inset-0 rounded-full border-2 border-green-500 border-t-transparent animate-spin" />
                 </div>
               ) : task.status === 'completed' ? (
-                <CheckCircle className="h-5 w-5 text-green-500 animate-bounce" />
+                <CheckCircle className="h-5 w-5 text-green-500" />
               ) : (
                 <Circle className="h-5 w-5 text-secondary-400 group-hover:text-green-500 transition-colors duration-200" />
               )}
@@ -314,7 +327,7 @@ export const CompactTaskList = memo(function CompactTaskList({ tasks, projects, 
               <div className="absolute inset-0 bg-gradient-to-r from-green-50 to-green-100 opacity-50 animate-pulse rounded-lg" />
             )}
             
-            {/* 任务内容 */}
+            {/* 任务内容（点击打开详情） */}
             <div className="flex-1 min-w-0">
               <p className={`
                 text-sm font-medium truncate transition-all duration-300
@@ -354,6 +367,45 @@ export const CompactTaskList = memo(function CompactTaskList({ tasks, projects, 
             </div>
           </div>
         ))}
+        </div>
+      )}
+
+      {/* 简约任务详情抽屉 */}
+      {selectedTask && (
+        <div className="fixed inset-0 z-40" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/20" onClick={() => setSelectedTask(null)} />
+          <aside className="absolute right-0 top-0 h-full w-[360px] max-w-[90vw] bg-white shadow-xl border-l border-secondary-200 flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <h3 className="text-sm font-semibold text-secondary-900 truncate">{selectedTask.title}</h3>
+              <button className="p-1.5 hover:bg-secondary-100 rounded" onClick={() => setSelectedTask(null)} aria-label="关闭">
+                <X className="h-4 w-4 text-secondary-600" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3 text-sm text-secondary-700">
+              <div className="flex items-center gap-2"><span className="text-secondary-500">所属项目:</span><span className="truncate">{projects.find(p => p.id === selectedTask.project_id)?.name || '—'}</span></div>
+              <div className="flex items-center gap-2"><span className="text-secondary-500">优先级:</span><span className="truncate">{selectedTask.priority}</span></div>
+              <div className="flex items-center gap-2"><span className="text-secondary-500">状态:</span><span className="truncate">{selectedTask.status}</span></div>
+              {selectedTask.description && (
+                <div>
+                  <div className="text-secondary-500 mb-1">描述</div>
+                  <div className="text-secondary-800 whitespace-pre-wrap break-words text-sm bg-secondary-50 rounded p-2">{selectedTask.description}</div>
+                </div>
+              )}
+            </div>
+            <div className="mt-auto p-4 border-t flex gap-2">
+              <button
+                className="flex-1 px-3 py-2 rounded bg-primary-500 text-white hover:bg-primary-600 transition"
+                onClick={async () => {
+                  const next = selectedTask.status === 'completed' ? 'pending' : 'completed'
+                  await updateTaskStatus(selectedTask.id, next)
+                  setSelectedTask({ ...selectedTask, status: next })
+                }}
+              >
+                {selectedTask.status === 'completed' ? '标记为未完成' : '标记为完成'}
+              </button>
+              <button className="px-3 py-2 rounded bg-secondary-200 text-secondary-700 hover:bg-secondary-300" onClick={() => setSelectedTask(null)}>关闭</button>
+            </div>
+          </aside>
         </div>
       )}
     </div>
