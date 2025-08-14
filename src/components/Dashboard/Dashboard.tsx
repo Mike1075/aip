@@ -44,8 +44,6 @@ export function Dashboard({ organization }: DashboardProps) {
 
   useEffect(() => {
     if (user && organization) {
-      // 组件加载完成，设置loading为false
-      setLoading(false)
       loadDashboardData()
     }
   }, [user, organization])
@@ -57,31 +55,29 @@ export function Dashboard({ organization }: DashboardProps) {
       console.log(`🔄 开始加载仪表板数据 ${forceRefresh ? '(强制刷新)' : '(使用缓存)'}`)
       
       // 使用缓存获取当前组织的项目
-      const projects = await fetchOrganizationProjectsWithCache(
-        organization.id, 
-        user.id,
-        () => organizationAPI.getOrganizationProjects(organization.id, user.id)
-      )
+      const [projects] = await Promise.all([
+        fetchOrganizationProjectsWithCache(
+          organization.id, 
+          user.id,
+          () => organizationAPI.getOrganizationProjects(organization.id, user.id)
+        )
+      ])
       setProjects(projects)
 
-      // 获取用户在各项目中的权限
+      // 批量获取用户在各项目中的角色并映射为权限
+      const projectIds = projects.map((p: Project) => p.id)
+      let roleMap: Record<string, 'manager' | 'developer' | 'tester' | 'designer' | null> = {}
+      try {
+        roleMap = await organizationAPI.getUserProjectRoles(projectIds, user.id)
+      } catch (error) {
+        console.error('批量获取项目角色失败:', error)
+      }
       const permissions: Record<string, 'manager' | 'member' | 'none'> = {}
-      for (const project of projects) {
-        try {
-          const role = await organizationAPI.getUserProjectRole(project.id, user.id)
-          // 将项目角色映射到权限类型
-          if (role === 'manager') {
-            permissions[project.id] = 'manager'
-          } else if (role) {
-            // 只要有任何角色（如 member/developer/tester/designer 等），都视为成员
-            permissions[project.id] = 'member'
-          } else {
-            permissions[project.id] = 'none'
-          }
-        } catch (error) {
-          console.error(`获取项目 ${project.id} 权限失败:`, error)
-          permissions[project.id] = 'none'
-        }
+      for (const pid of projectIds) {
+        const role = roleMap[pid]
+        if (role === 'manager') permissions[pid] = 'manager'
+        else if (role) permissions[pid] = 'member'
+        else permissions[pid] = 'none'
       }
       setUserProjectPermissions(permissions)
       
@@ -105,22 +101,17 @@ export function Dashboard({ organization }: DashboardProps) {
         组织项目: organizationList.length
       })
 
-      // 使用缓存检查用户是否是该组织的成员
-      try {
-        const userOrgs = await fetchUserOrganizationsWithCache(
+      // 并发：检查组织成员身份 + 加载任务
+      const [userOrgs] = await Promise.all([
+        fetchUserOrganizationsWithCache(
           user.id,
           () => organizationAPI.getUserOrganizations(user.id)
-        )
-        const isMember = organization ? userOrgs.some((userOrg: Organization) => userOrg.id === organization.id) : false
-        setIsOrganizationMember(isMember)
-        console.log(`🔍 用户 ${user.id} 在组织 ${organization?.name ?? '-'} 的成员身份: ${isMember ? '是成员' : '非成员'}`)
-      } catch (error) {
-        console.error('检查组织成员身份失败:', error)
-        setIsOrganizationMember(false)
-      }
-
-      // 获取分配给当前用户的任务
-      await loadUserTasks(forceRefresh)
+        ),
+        loadUserTasks(forceRefresh)
+      ])
+      const isMember = !!organization && userOrgs.some((userOrg: Organization) => userOrg.id === organization.id)
+      setIsOrganizationMember(isMember)
+      console.log(`🔍 用户 ${user.id} 在组织 ${organization ? organization.name : '-' } 的成员身份: ${isMember ? '是成员' : '非成员'}`)
       
     } catch (error) {
       console.error('❌ 加载仪表板数据失败:', error)
@@ -177,7 +168,7 @@ export function Dashboard({ organization }: DashboardProps) {
     console.log('🔄 手动刷新数据，清除缓存')
     
     // 清除相关缓存
-    clearOrganizationCache(organization.id, user.id)
+    if (organization) clearOrganizationCache(organization.id, user.id)
     
     // 强制重新加载数据
     await loadDashboardData(true)
@@ -250,7 +241,7 @@ export function Dashboard({ organization }: DashboardProps) {
       }
 
       // 清除缓存并重新加载数据
-      clearOrganizationCache(organization.id, user.id)
+      if (organization) clearOrganizationCache(organization.id, user.id)
       await loadDashboardData(true)
       setShowCreateProject(false)
       
@@ -331,7 +322,7 @@ export function Dashboard({ organization }: DashboardProps) {
       
       // 清除缓存并重新加载数据
       console.log('🔄 开始重新加载数据...')
-      clearOrganizationCache(organization.id, user.id)
+      if (organization) clearOrganizationCache(organization.id, user.id)
       await loadDashboardData(true)
       console.log('🔄 数据重新加载完成')
       
@@ -367,7 +358,7 @@ export function Dashboard({ organization }: DashboardProps) {
       console.log('✅ 描述更新成功！')
       
       // 清除缓存并重新加载数据
-      clearOrganizationCache(organization.id, user.id)
+      if (organization) clearOrganizationCache(organization.id, user.id)
       await loadDashboardData(true)
       setShowEditDescription(false)
       setEditingProject(null)
@@ -383,7 +374,7 @@ export function Dashboard({ organization }: DashboardProps) {
   const handleProjectClick = (project: Project) => {
     if (!organization) return
     // 跳转到项目详情页面
-    navigate(generatePath.projectDetail(organization.id, project.id))
+    navigate(generatePath.projectDetail((organization as Organization).id, project.id))
   }
 
   const handleTaskStatusChange = (taskId: string, newStatus: string) => {
@@ -413,7 +404,7 @@ export function Dashboard({ organization }: DashboardProps) {
       console.log('✅ 项目可见性切换成功！')
       
       // 清除缓存并重新加载数据
-      clearOrganizationCache(organization.id, user.id)
+      if (organization) clearOrganizationCache(organization.id, user.id)
       await loadDashboardData(true)
       
     } catch (error) {
@@ -442,7 +433,7 @@ export function Dashboard({ organization }: DashboardProps) {
       console.log('✅ 项目招募状态切换成功！')
       
       // 清除缓存并重新加载数据
-      clearOrganizationCache(organization.id, user.id)
+      if (organization) clearOrganizationCache(organization.id, user.id)
       await loadDashboardData(true)
       
     } catch (error) {

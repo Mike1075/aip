@@ -32,11 +32,16 @@ export function MyOrganizations({ onSelectOrganization, onCreateOrganization }: 
       const organizations = await organizationAPI.getUserOrganizations(user.id)
       setMyOrganizations(organizations)
 
-      // 为每个组织加载项目数据
+      // 为每个组织并发加载项目数据
+      const pairs = await Promise.all(
+        organizations.map(async (org) => {
+          const projects = await organizationAPI.getOrganizationProjects(org.id, user.id)
+          return [org.id, projects] as const
+        })
+      )
       const projectsData: Record<string, Project[]> = {}
-      for (const org of organizations) {
-        const projects = await organizationAPI.getOrganizationProjects(org.id, user.id)
-        projectsData[org.id] = projects
+      for (const [orgId, projs] of pairs) {
+        projectsData[orgId] = projs
       }
       setOrgProjects(projectsData)
     } catch (error) {

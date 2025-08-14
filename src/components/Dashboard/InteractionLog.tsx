@@ -49,20 +49,21 @@ export function InteractionLog({ onClose, onUnreadCountChange }: InteractionLogP
   useEffect(() => {
     if (user) {
       loadAllInteractions()
-      // 订阅数据库变更，自动刷新
+      // 🚀 优化：减少实时订阅数量，只订阅关键变更
       const channel = supabase
         .channel(`inbox-updates-${user.id}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, () => { loadAllInteractions(); onUnreadCountChange?.() })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'invitations', filter: `inviter_id=eq.${user.id}` }, () => { loadAllInteractions(); onUnreadCountChange?.() })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'invitations', filter: user.email ? `invitee_email=eq.${user.email}` : 'id=gt.0' }, () => { loadAllInteractions(); onUnreadCountChange?.() })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'invitations', filter: `invitee_id=eq.${user.id}` }, () => { loadAllInteractions(); onUnreadCountChange?.() })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'organization_join_requests' }, () => { loadAllInteractions(); onUnreadCountChange?.() })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'project_join_requests' }, () => { loadAllInteractions(); onUnreadCountChange?.() })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, () => { 
+          // 防抖：避免频繁刷新
+          setTimeout(() => { loadAllInteractions(); onUnreadCountChange?.() }, 500)
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'invitations', filter: `inviter_id=eq.${user.id}` }, () => { 
+          setTimeout(() => { loadAllInteractions(); onUnreadCountChange?.() }, 500)
+        })
         .subscribe()
 
       return () => { supabase.removeChannel(channel) }
     }
-  }, [user?.id, user?.email])
+  }, [user?.id])
 
   const loadAllInteractions = async () => {
     if (!user) return

@@ -66,28 +66,21 @@ export function OrganizationList({ onSelectOrganization, showCreateModal: initia
         }
       }
 
-      // 为每个组织加载项目和设置状态
-      const projectsData: Record<string, Project[]> = {}
+      // 🚀 优化：批量加载所有组织的项目，避免 N+1 查询
+      const orgIds = orgs.map(org => org.id)
+      const projectsData = user 
+        ? await organizationAPI.getMultipleOrganizationProjects(orgIds, user.id)
+        : await organizationAPI.getMultipleOrganizationProjects(orgIds)
+      
+      // 设置成员状态和待审核状态
       const membershipData: Record<string, boolean> = {}
       const pendingRequestsData: Record<string, boolean> = {}
       
-      // 并行加载所有组织的项目
-      await Promise.all(orgs.map(async (org) => {
-        try {
-          const projects = await organizationAPI.getOrganizationProjects(org.id, user?.id)
-          projectsData[org.id] = projects
-          
-          // 设置成员状态
-          const isMember = user ? userOrganizations.some(userOrg => userOrg.id === org.id) : false
-          membershipData[org.id] = isMember
-          pendingRequestsData[org.id] = user ? (userPendingRequests[org.id] || false) : false
-        } catch (error) {
-          console.error(`加载组织 ${org.id} 项目失败:`, error)
-          projectsData[org.id] = []
-          membershipData[org.id] = false
-          pendingRequestsData[org.id] = false
-        }
-      }))
+      for (const org of orgs) {
+        const isMember = user ? userOrganizations.some(userOrg => userOrg.id === org.id) : false
+        membershipData[org.id] = isMember
+        pendingRequestsData[org.id] = user ? (userPendingRequests[org.id] || false) : false
+      }
       
       setOrgProjects(projectsData)
       setUserOrgMembership(membershipData)

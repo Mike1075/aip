@@ -275,34 +275,9 @@ export const organizationAPI = {
 
   // 获取组织的项目（根据权限过滤）
   async getOrganizationProjects(organizationId: string, userId?: string): Promise<Project[]> {
-    let query = supabase
-      .from('projects')
-      .select('*')
-      .eq('organization_id', organizationId)
-
-    // 如果用户未登录，只显示公开项目
-    if (!userId) {
-      query = query.eq('is_public', true)
-    } else {
-      // 如果用户已登录，显示公开项目 + 用户参与的私有项目
-      const { data: memberProjects } = await supabase
-        .from('project_members')
-        .select('project_id')
-        .eq('user_id', userId)
-      
-      const memberProjectIds = memberProjects?.map(p => p.project_id) || []
-      
-      if (memberProjectIds.length > 0) {
-        query = query.or(`is_public.eq.true,id.in.(${memberProjectIds.join(',')})`)
-      } else {
-        query = query.eq('is_public', true)
-      }
-    }
-    
-    const { data, error } = await query.order('created_at', { ascending: false })
-    
-    if (error) throw error
-    return data || []
+    // 使用批量方法获取单个组织的项目，避免重复查询 project_members
+    const result = await this.getMultipleOrganizationProjects([organizationId], userId)
+    return result[organizationId] || []
   },
 
   // 检查用户是否为项目成员
@@ -381,10 +356,235 @@ export const organizationAPI = {
     return data?.role_in_project || null
   },
 
+  /**
+   * 批量获取用户在多个项目中的角色
+   * @param {string[]} projectIds - 项目ID列表
+   * @param {string} userId - 用户ID
+   * @returns {Promise<Record<string, 'manager' | 'developer' | 'tester' | 'designer' | null>>}
+   */
+  async getUserProjectRoles(projectIds: string[], userId: string): Promise<Record<string, 'manager' | 'developer' | 'tester' | 'designer' | null>> {
+    if (!projectIds.length) return {}
+    const { data, error } = await supabase
+      .from('project_members')
+      .select('project_id, role_in_project')
+      .eq('user_id', userId)
+      .in('project_id', projectIds)
+    if (error) throw error
+    const map: Record<string, 'manager' | 'developer' | 'tester' | 'designer' | null> = {}
+    for (const row of (data || []) as any[]) {
+      map[row.project_id] = row.role_in_project || null
+    }
+    return map
+  },
+
+  /**
+   * 批量获取用户参与的所有项目ID（缓存友好）
+   * @param {string} userId - 用户ID  
+   * @returns {Promise<string[]>}
+   */
+  async getUserProjectIds(userId: string): Promise<string[]> {
+    const { data, error } = await supabase
+      .from('project_members')
+      .select('project_id')
+      .eq('user_id', userId)
+    if (error) throw error
+    return (data || []).map(row => row.project_id)
+  },
+
+  /**
+   * 批量获取多个组织的项目（优化版本）
+   * @param {string[]} organizationIds - 组织ID列表
+   * @param {string} userId - 用户ID
+   * @returns {Promise<Record<string, Project[]>>}
+   */
+  async getMultipleOrganizationProjects(organizationIds: string[], userId?: string): Promise<Record<string, Project[]>> {
+    if (!organizationIds.length) return {}
+    
+    let userProjectIds: string[] = []
+    if (userId) {
+      // 一次性获取用户参与的所有项目
+      userProjectIds = await this.getUserProjectIds(userId)
+    }
+
+    // 批量查询所有组织的项目
+    let query = supabase
+      .from('projects')
+      .select('id, name, description, creator_id, organization_id, is_public, status, is_recruiting, settings, created_at, updated_at')
+      .in('organization_id', organizationIds)
+
+    if (!userId) {
+      query = query.eq('is_public', true)
+    } else if (userProjectIds.length > 0) {
+      query = query.or(`is_public.eq.true,id.in.(${userProjectIds.join(',')})`)
+    } else {
+      query = query.eq('is_public', true)
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false })
+    if (error) throw error
+
+    // 按组织分组
+    const result: Record<string, Project[]> = {}
+    organizationIds.forEach(orgId => result[orgId] = [])
+    
+    for (const project of (data || [])) {
+      if (result[project.organization_id]) {
+        result[project.organization_id].push(project)
+      }
+    }
+
+    return result
+  },
+
   // 检查用户是否为项目经理
   async isProjectManager(projectId: string, userId: string): Promise<boolean> {
     const role = await this.getUserProjectRole(projectId, userId)
     return role === 'manager'
+  },
+
+  // 创建组织
+  async createOrganization(name: string, description: string, creatorId: string): Promise<Organization> {
+    // 1. 创建组织
+    const { data: organization, error: orgError } = await supabase
+      .from('organizations')
+      .insert({
+        name,
+        description,
+        settings: {}
+      })
+      .select()
+      .single()
+    
+    if (orgError) throw orgError
+
+    // 2. 自动将创建者设为组织管理员
+    const { error: memberError } = await supabase
+      .from('user_organizations')
+      .insert({
+        user_id: creatorId,
+        organization_id: organization.id,
+        role_in_org: 'admin',
+        joined_at: new Date().toISOString()
+      })
+    
+    if (memberError) {
+      // 如果添加成员失败，删除已创建的组织
+      await supabase.from('organizations').delete().eq('id', organization.id)
+      throw memberError
+    }
+
+    return organization
+  },
+
+  // 申请加入组织
+  async applyToJoinOrganization(userId: string, organizationId: string, message?: string): Promise<any> {
+    // 检查用户是否已经是成员
+    const { data: existing, error: checkError } = await supabase
+      .from('user_organizations')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('organization_id', organizationId)
+      .single()
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      throw checkError
+    }
+
+    if (existing) {
+      throw new Error('您已经是该组织的成员')
+    }
+
+    // 检查是否已有待处理的申请
+    const { data: pendingRequest, error: pendingError } = await supabase
+      .from('organization_join_requests')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('organization_id', organizationId)
+      .eq('status', 'pending')
+      .single()
+
+    if (pendingError && pendingError.code !== 'PGRST116') {
+      throw pendingError
+    }
+
+    if (pendingRequest) {
+      throw new Error('您已经有一个待处理的申请')
+    }
+
+    // 创建申请
+    const { data, error } = await supabase
+      .from('organization_join_requests')
+      .insert({
+        user_id: userId,
+        organization_id: organizationId,
+        message: message || '',
+        status: 'pending'
+      })
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  },
+
+  // 获取用户的申请状态
+  async getUserJoinRequestStatus(userId: string, organizationId: string): Promise<any> {
+    const { data, error } = await supabase
+      .from('organization_join_requests')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('organization_id', organizationId)
+      .eq('status', 'pending')
+      .single()
+
+    if (error && error.code !== 'PGRST116') {
+      throw error
+    }
+
+    return data || null
+  },
+
+  // 删除组织（仅管理员可删除）
+  async deleteOrganization(organizationId: string, userId: string): Promise<void> {
+    // 1. 检查用户是否为组织管理员
+    const { data: userOrg, error: checkError } = await supabase
+      .from('user_organizations')
+      .select('role_in_org')
+      .eq('user_id', userId)
+      .eq('organization_id', organizationId)
+      .single()
+    
+    if (checkError || !userOrg || userOrg.role_in_org !== 'admin') {
+      throw new Error('只有组织管理员可以删除组织')
+    }
+
+    // 2. 检查组织内是否还有项目
+    const { data: projects, error: projectError } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('organization_id', organizationId)
+    
+    if (projectError) throw projectError
+    
+    if (projects && projects.length > 0) {
+      throw new Error('请先删除组织内的所有项目，然后再删除组织')
+    }
+
+    // 3. 删除用户-组织关联
+    const { error: memberError } = await supabase
+      .from('user_organizations')
+      .delete()
+      .eq('organization_id', organizationId)
+    
+    if (memberError) throw memberError
+
+    // 4. 删除组织
+    const { error: orgError } = await supabase
+      .from('organizations')
+      .delete()
+      .eq('id', organizationId)
+    
+    if (orgError) throw orgError
   },
 
   // 获取项目成员列表
