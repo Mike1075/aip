@@ -57,10 +57,10 @@ export function Dashboard({ organization }: DashboardProps) {
       // 使用缓存获取当前组织的项目
       const [projects] = await Promise.all([
         fetchOrganizationProjectsWithCache(
-          organization.id, 
-          user.id,
-          () => organizationAPI.getOrganizationProjects(organization.id, user.id)
-        )
+        organization.id, 
+        user.id,
+        () => organizationAPI.getOrganizationProjects(organization.id, user.id)
+      )
       ])
       setProjects(projects)
 
@@ -110,7 +110,7 @@ export function Dashboard({ organization }: DashboardProps) {
         loadUserTasks(forceRefresh)
       ])
       const isMember = !!organization && userOrgs.some((userOrg: Organization) => userOrg.id === organization.id)
-      setIsOrganizationMember(isMember)
+        setIsOrganizationMember(isMember)
       console.log(`🔍 用户 ${user.id} 在组织 ${organization ? organization.name : '-' } 的成员身份: ${isMember ? '是成员' : '非成员'}`)
       
     } catch (error) {

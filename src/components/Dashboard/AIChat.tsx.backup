@@ -432,8 +432,8 @@ export function AIChat({ onClose, organization, currentProject, showProjectSelec
                 <div
                   className={`px-4 py-2 rounded-lg ${
                     message.role === 'user'
-                      ? 'max-w-xs lg:max-w-md bg-primary-600 text-white'
-                      : 'max-w-[85%] bg-secondary-100 text-secondary-900'
+                      ? 'bg-primary-600 text-white max-w-xs lg:max-w-md'
+                      : 'bg-secondary-100 text-secondary-900 max-w-[85%] w-full'
                   }`}
                 >
                   {message.role === 'assistant' ? (

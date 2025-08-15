@@ -77,10 +77,10 @@ export function OrganizationList({ onSelectOrganization, showCreateModal: initia
       const pendingRequestsData: Record<string, boolean> = {}
       
       for (const org of orgs) {
-        const isMember = user ? userOrganizations.some(userOrg => userOrg.id === org.id) : false
-        membershipData[org.id] = isMember
-        pendingRequestsData[org.id] = user ? (userPendingRequests[org.id] || false) : false
-      }
+          const isMember = user ? userOrganizations.some(userOrg => userOrg.id === org.id) : false
+          membershipData[org.id] = isMember
+          pendingRequestsData[org.id] = user ? (userPendingRequests[org.id] || false) : false
+        }
       
       setOrgProjects(projectsData)
       setUserOrgMembership(membershipData)
